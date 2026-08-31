@@ -1230,13 +1230,12 @@ def main() -> None:
     )
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     logger.info("Bot starting (polling)...")
-    # app.run_polling(drop_pending_updates=True)
+    return app
 
 
 if __name__ == "__main__":
-    main()
-
-    return app
+    app = main()
+    app.run_polling(drop_pending_updates=True)
 
 def build_app():
     return main()
