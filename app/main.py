@@ -6,8 +6,8 @@ from app.routers import admin, ai, auth, chat, flashcards, notes, redeem, remind
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     try:
-        from bot import main as run_bot
-        asyncio.create_task(run_bot())
+        from bot import run_bot_async
+        asyncio.create_task(run_bot_async())
     except Exception as e:
         print(f"Failed to start bot background task: {e}")
     yield

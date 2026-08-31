@@ -1235,3 +1235,8 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+async def run_bot_async():
+    await app.initialize()
+    await app.start()
+    await app.updater.start_polling(drop_pending_updates=True)
