@@ -1230,13 +1230,19 @@ def main() -> None:
     )
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     logger.info("Bot starting (polling)...")
-    app.run_polling(drop_pending_updates=True)
+    # app.run_polling(drop_pending_updates=True)
 
 
 if __name__ == "__main__":
     main()
 
+    return app
+
+def build_app():
+    return main()
+
 async def run_bot_async():
-    await app.initialize()
-    await app.start()
-    await app.updater.start_polling(drop_pending_updates=True)
+    application = main()
+    await application.initialize()
+    await application.start()
+    await application.updater.start_polling(drop_pending_updates=True)
