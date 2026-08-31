@@ -1,0 +1,8 @@
+.env
+venv/
+*.zip
+storage_data/
+__pycache__/
+boot.log
+bot_heartbeat.txt
+__pycache__/
