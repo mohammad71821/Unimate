@@ -1,5 +1,4 @@
 import io
-import os
 import re
 from pathlib import Path
 
@@ -8,7 +7,6 @@ from pptx import Presentation
 from pptx.dml.color import RGBColor
 from pptx.enum.text import MSO_ANCHOR, MSO_AUTO_SIZE, PP_ALIGN
 from pptx.util import Inches, Pt
-from pptx.oxml.ns import qn
 
 NAVY = RGBColor(0x1A, 0x3C, 0x6E)
 WHITE = RGBColor(0xFF, 0xFF, 0xFF)
@@ -16,6 +14,7 @@ DARK_GRAY = RGBColor(0x2C, 0x3E, 0x50)
 LIGHT_GRAY = RGBColor(0xD8, 0xDE, 0xE8)
 BULLET_COLOR = RGBColor(0x2E, 0x6B, 0xB8)
 ACCENT = RGBColor(0x3B, 0x82, 0xF6)
+FOOTER_COLOR = RGBColor(0x94, 0xA3, 0xB8)
 
 FONT_NAME = "Vazirmatn"
 _FONTS_DIR = Path(__file__).resolve().parent / "fonts"
@@ -91,8 +90,8 @@ def _write_bullet(tf, first: bool, text: str, size: int, color: RGBColor) -> Non
     para = tf.paragraphs[0] if first else tf.add_paragraph()
     para.alignment = PP_ALIGN.RIGHT
     _set_rtl(para)
-    para.space_after = Pt(12)
-    para.line_spacing = 1.25
+    para.space_after = Pt(14)
+    para.line_spacing = 1.3
     text = _normalize_persian(text)
     run_mark = para.add_run()
     run_mark.text = "●  "
@@ -100,6 +99,14 @@ def _write_bullet(tf, first: bool, text: str, size: int, color: RGBColor) -> Non
     run_text = para.add_run()
     run_text.text = text
     _style_run(run_text, size, color)
+
+def _add_footer(slide, current: int, total: int) -> None:
+    _, tf = _add_textbox(slide, Inches(0.5), Inches(7.05), Inches(3.0), Inches(0.35), anchor=MSO_ANCHOR.MIDDLE)
+    p = tf.paragraphs[0]
+    p.alignment = PP_ALIGN.LEFT
+    run = p.add_run()
+    run.text = f"{current} / {total}"
+    _style_run(run, 12, FOOTER_COLOR)
 
 def build_pptx_bytes(outline: dict) -> bytes:
     slides = outline.get("slides", [])
@@ -109,7 +116,9 @@ def build_pptx_bytes(outline: dict) -> bytes:
     prs.slide_width = SLIDE_W
     prs.slide_height = SLIDE_H
     blank_layout = prs.slide_layouts[6]
+    total_slides = len(slides)
 
+    # اسلاید عنوان
     first = slides[0]
     slide = prs.slides.add_slide(blank_layout)
     slide.background.fill.solid()
@@ -138,23 +147,25 @@ def build_pptx_bytes(outline: dict) -> bytes:
     accent.fill.solid()
     accent.fill.fore_color.rgb = ACCENT
     _no_line(accent)
+    _add_footer(slide, 1, total_slides)
 
-    rest = slides[1:] if len(slides) > 1 else slides
-    for item in rest:
+    # اسلایدهای محتوا
+    rest = slides[1:] if len(slides) > 1 else []
+    for idx, item in enumerate(rest, start=2):
         slide = prs.slides.add_slide(blank_layout)
         slide.background.fill.solid()
         slide.background.fill.fore_color.rgb = WHITE
-        header = slide.shapes.add_shape(1, 0, 0, SLIDE_W, Inches(1.25))
+        header = slide.shapes.add_shape(1, 0, 0, SLIDE_W, Inches(1.20))
         header.fill.solid()
         header.fill.fore_color.rgb = NAVY
         _no_line(header)
-        accent_line = slide.shapes.add_shape(1, 0, Inches(1.25), SLIDE_W, Inches(0.06))
+        accent_line = slide.shapes.add_shape(1, 0, Inches(1.20), SLIDE_W, Inches(0.08))
         accent_line.fill.solid()
         accent_line.fill.fore_color.rgb = ACCENT
         _no_line(accent_line)
         item_title = _normalize_persian(item.get("title", ""))
         content_title_size = _title_font_size(item_title, base=26, long_len=28, longer_len=42)
-        _, title_tf = _add_textbox(slide, Inches(0.6), 0, Inches(12.1), Inches(1.25), anchor=MSO_ANCHOR.MIDDLE)
+        _, title_tf = _add_textbox(slide, Inches(0.6), 0, Inches(12.1), Inches(1.20), anchor=MSO_ANCHOR.MIDDLE)
         title_tf.auto_size = MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE
         p = title_tf.paragraphs[0]
         p.alignment = PP_ALIGN.RIGHT
@@ -165,10 +176,11 @@ def build_pptx_bytes(outline: dict) -> bytes:
         bullets = item.get("bullets", [])
         if bullets:
             bullet_size = _bullet_font_size(bullets)
-            _, body_tf = _add_textbox(slide, Inches(0.9), Inches(1.7), Inches(11.5), Inches(5.3))
+            _, body_tf = _add_textbox(slide, Inches(0.9), Inches(1.75), Inches(11.5), Inches(5.0))
             body_tf.auto_size = MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE
             for i, bullet in enumerate(bullets):
                 _write_bullet(body_tf, i == 0, bullet, bullet_size, DARK_GRAY)
+        _add_footer(slide, idx, total_slides)
 
     buffer = io.BytesIO()
     prs.save(buffer)
