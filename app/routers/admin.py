@@ -268,17 +268,6 @@ async def revoke_code(code: str, db: AsyncSession = Depends(get_db)):
     return _code_to_out(row)
 
 
-@router.post("/wipe-all-users", dependencies=[Depends(verify_admin_secret)])
-async def wipe_all_users(db: AsyncSession = Depends(get_db)):
-    """
-    خطرناک: همه‌ی کاربرا و هر چیز وابسته بهشون (نوت‌ها، فلش‌کارت‌ها،
-    یادآوری‌ها، دعوت‌ها) رو کامل پاک می‌کنه. برگشت‌ناپذیره.
-    """
-    await db.execute(text("TRUNCATE TABLE users CASCADE"))
-    await db.commit()
-    return {"status": "ok", "message": "همه‌ی کاربرا پاک شدن."}
-
-
 @router.get("/panel", response_class=HTMLResponse)
 async def admin_panel():
     """
