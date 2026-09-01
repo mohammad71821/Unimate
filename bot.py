@@ -34,6 +34,8 @@ BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 API_BASE_URL = os.environ.get("API_BASE_URL", f"http://127.0.0.1:{os.environ.get('PORT', '8000')}")
 BOT_SHARED_SECRET = os.environ["BOT_SHARED_SECRET"]
 WEBAPP_URL = os.environ.get("WEBAPP_URL", "")  # آدرس عمومی HTTPS (مثلاً از Cloudflare Tunnel)
+ADMIN_TELEGRAM_ID = 6658020918
+ADMIN_SECRET = os.environ.get("ADMIN_SECRET", "")
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("unimate-bot")
@@ -1204,6 +1206,47 @@ async def _setup_menu_button(app: Application) -> None:
         logger.exception("Failed to sync menu button")
 
 
+async def cmd_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if update.effective_user.id != ADMIN_TELEGRAM_ID:
+        return
+
+    text = update.message.text.partition(" ")[2].strip()
+    if not text:
+        await update.message.reply_text("استفاده: /broadcast متن پیام")
+        return
+
+    if not ADMIN_SECRET:
+        await update.message.reply_text("ADMIN_SECRET تنظیم نشده.")
+        return
+
+    await update.message.reply_text("در حال ارسال پیام به همه‌ی کاربرا...")
+
+    try:
+        async with httpx.AsyncClient(base_url=API_BASE_URL, timeout=60) as client:
+            resp = await client.get("/admin/users", headers={"X-Admin-Secret": ADMIN_SECRET})
+            resp.raise_for_status()
+            users = resp.json()
+    except Exception:
+        logger.exception("Broadcast: failed to fetch users")
+        await update.message.reply_text("خطا در گرفتن لیست کاربرا.")
+        return
+
+    sent = 0
+    failed = 0
+    for u in users:
+        tg_id = u.get("telegram_id")
+        if not tg_id:
+            continue
+        try:
+            await context.bot.send_message(chat_id=int(tg_id), text=text)
+            sent += 1
+        except Exception:
+            failed += 1
+        await asyncio.sleep(0.05)
+
+    await update.message.reply_text(f"ارسال شد به {sent} کاربر. ({failed} ناموفق)")
+
+
 def main() -> None:
     app = Application.builder().token(BOT_TOKEN).post_init(_setup_menu_button).build()
     app.add_handler(CommandHandler("start", start))
@@ -1220,6 +1263,7 @@ def main() -> None:
     app.add_handler(CommandHandler("studyplan", cmd_studyplan))
     app.add_handler(CommandHandler("remind", cmd_remind))
     app.add_handler(CommandHandler("review", cmd_review))
+    app.add_handler(CommandHandler("broadcast", cmd_broadcast))
     app.add_handler(CallbackQueryHandler(handle_button))
     app.job_queue.run_repeating(check_due_reminders, interval=30, first=10)
     app.job_queue.run_daily(send_flashcard_nudges, time=dt_time(hour=10, minute=0))
