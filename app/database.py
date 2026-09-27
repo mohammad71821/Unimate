@@ -17,7 +17,11 @@ def _to_asyncpg_url(url: str) -> str:
     return url
 
 
-engine = create_async_engine(_to_asyncpg_url(settings.database_url), echo=False)
+engine = create_async_engine(
+    _to_asyncpg_url(settings.database_url),
+    echo=False,
+    connect_args={"statement_cache_size": 0},
+)
 async_session = async_sessionmaker(engine, expire_on_commit=False)
 
 
