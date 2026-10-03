@@ -2,7 +2,7 @@ import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -95,7 +95,10 @@ async def list_courses(
         .group_by(Course.id)
         .order_by(Course.created_at)
     )
-    return [{"id": str(c.id), "name": c.name, "items_count": n} for c, n in rows.all()]
+    return [
+        {"id": str(c.id), "name": c.name, "items_count": n, "is_active": c.is_active}
+        for c, n in rows.all()
+    ]
 
 
 @router.post("/courses")
@@ -128,6 +131,50 @@ async def create_course(
         return {"id": str(existing.id), "name": existing.name, "created": False}
     await db.refresh(course)
     return {"id": str(course.id), "name": course.name, "created": True}
+
+
+@router.get("/active")
+async def get_active_course(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """درس فعالِ کاربر (اگه باشه). بات بعد از آپلود فایل صوتی این رو چک می‌کنه."""
+    result = await db.scalars(
+        select(Course)
+        .where(Course.owner_id == current_user.id, Course.is_active.is_(True))
+        .order_by(Course.created_at)
+        .limit(1)
+    )
+    course = result.first()
+    return {"course": {"id": str(course.id), "name": course.name} if course else None}
+
+
+@router.post("/courses/{course_id}/activate")
+async def activate_course(
+    course_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    course = await _owned_course(course_id, current_user, db)
+    # هر کاربر فقط یه درس فعال داره
+    await db.execute(update(Course).where(Course.owner_id == current_user.id).values(is_active=False))
+    course.is_active = True
+    await db.commit()
+    return {"id": str(course.id), "name": course.name, "is_active": True}
+
+
+@router.delete("/active")
+async def clear_active_course(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await db.execute(
+        update(Course)
+        .where(Course.owner_id == current_user.id, Course.is_active.is_(True))
+        .values(is_active=False)
+    )
+    await db.commit()
+    return {"cleared": True}
 
 
 @router.delete("/courses/{course_id}")
@@ -198,7 +245,7 @@ async def list_items(
         .order_by(JozveItem.number, JozveItem.created_at)
     )
     return {
-        "course": {"id": str(course.id), "name": course.name},
+        "course": {"id": str(course.id), "name": course.name, "is_active": course.is_active},
         "items": [_item_out(i) for i in result.all()],
     }
 

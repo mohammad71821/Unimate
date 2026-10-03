@@ -283,7 +283,8 @@ HELP_TEXT = (
     "مرور، اگه کارتی رو دیگه نمی‌خوای، بدون اینکه مرورش کنی می‌تونی حذفش کنی. "
     "هر روز ساعت ۱۰ صبح اگه کارت معوقه داشته باشی خودم یادت می‌اندازم.\n\n"
     f"با «{BTN_JOZVE}» خلاصه‌هات رو بر اساس درس دسته‌بندی و شماره‌گذاری می‌کنی و هر وقت خواستی از هر درس "
-    "یه جزوه‌ی مرتب (PDF یا DOCX) می‌گیری. زیر هر خلاصه دکمه‌ی «ذخیره در جزوه» هست.\n\n"
+    "یه جزوه‌ی مرتب (PDF یا DOCX) می‌گیری. زیر هر خلاصه دکمه‌ی «ذخیره در جزوه» هست. "
+    "با «⭐ درس فعال» ویس‌ها و فایل‌های صوتی کلاس خودکار خلاصه و تو همون درس ذخیره می‌شن.\n\n"
     "/studyplan روی یه فایل فعال، یه برنامه‌ی مطالعاتی روزانه می‌سازه.\n"
     "/remind هم یادآوری می‌سازه (مثلاً /remind 2h وقت مطالعه).\n"
     "/credits وضعیت پلن و اعتبار باقی‌مونده‌ت رو نشون می‌ده.\n"
@@ -376,6 +377,10 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         "می‌تونی از دکمه‌های زیر استفاده کنی یا مستقیم سؤال بپرسی:"
     )
     await message.reply_text(reply, reply_markup=note_keyboard(note_id))
+
+    await _auto_save_to_active_course(
+        message, user_id, note_id, filename, result.get("processing_status")
+    )
 
 
 async def _fetch_action_text(user_id: int, action: str, note_id: str) -> str:
@@ -964,6 +969,7 @@ async def cmd_search(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 
 # ===================== جزوه (دسته‌بندی خلاصه‌ها بر اساس درس) =====================
 JOZVE_PAGE_SIZE = 10
+AUDIO_EXTS = (".ogg", ".oga", ".opus", ".mp3", ".m4a", ".wav", ".aac", ".flac", ".amr", ".wma")
 _FA_DIGITS = str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "01234567890123456789")
 
 
@@ -988,7 +994,7 @@ def _jz_courses_keyboard(courses: list, prefix: str, new_cb: str | None) -> Inli
     rows = [
         [
             InlineKeyboardButton(
-                f"📘 {_jz_short(c['name'], 30)} ({c['items_count']})",
+                f"{'⭐' if c.get('is_active') else '📘'} {_jz_short(c['name'], 30)} ({c['items_count']})",
                 callback_data=f"{prefix}:{c['id']}",
             )
         ]
@@ -1036,6 +1042,12 @@ async def _save_summary_to_course(user_id: int, chat_id: int, course_id: str) ->
     return resp.json()
 
 
+def _activate_offer(data: dict) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [[InlineKeyboardButton("⭐ ویس‌های بعدی هم خودکار اینجا ذخیره بشن", callback_data=f"jzact:{data['course_id']}")]]
+    )
+
+
 def _saved_message(data: dict) -> str:
     return (
         f"✅ تو «{data['course_name']}» ذخیره شد — شماره {data['number']}\n"
@@ -1054,8 +1066,12 @@ async def _show_courses(send, user_id: int) -> None:
             ),
         )
         return
+    active = next((c for c in courses if c.get("is_active")), None)
+    header = "📒 جزوه‌هام — یه درس رو انتخاب کن:"
+    if active:
+        header = f"⭐ درس فعال: «{active['name']}» (ویس‌ها و فایل‌های صوتی خودکار اینجا ذخیره می‌شن)\n\n" + header
     await send(
-        "📒 جزوه‌هام — یه درس رو انتخاب کن:",
+        header,
         reply_markup=_jz_courses_keyboard(courses, "jzo", "jznew:create"),
     )
 
@@ -1063,7 +1079,11 @@ async def _show_courses(send, user_id: int) -> None:
 async def _show_course(send, user_id: int, course_id: str) -> None:
     data = (await api_request(user_id, "GET", f"/jozve/courses/{course_id}/items")).json()
     items = data["items"]
-    lines = [f"📘 {data['course']['name']}", f"{len(items)} خلاصه", ""]
+    is_active = bool(data["course"].get("is_active"))
+    lines = [f"{'⭐' if is_active else '📘'} {data['course']['name']}", f"{len(items)} خلاصه"]
+    if is_active:
+        lines.append("⭐ درس فعال: فایل‌های صوتی جدید خودکار اینجا ذخیره می‌شن")
+    lines.append("")
     for it in items[:40]:
         lines.append(f"{it['number']}. {_jz_short(it.get('title') or 'بدون عنوان')}")
     if len(items) > 40:
@@ -1077,6 +1097,10 @@ async def _show_course(send, user_id: int, course_id: str) -> None:
             ]
         )
         rows.append([InlineKeyboardButton("✏️ مدیریت خلاصه‌ها", callback_data=f"jzm:{course_id}:0")])
+    if is_active:
+        rows.append([InlineKeyboardButton("⏹ خاموش کردن درس فعال", callback_data="jzoff:0")])
+    else:
+        rows.append([InlineKeyboardButton("⭐ درس فعال کن", callback_data=f"jzact:{course_id}")])
     rows.append([InlineKeyboardButton("🗑 حذف درس", callback_data=f"jzcd:{course_id}")])
     rows.append([InlineKeyboardButton("⬅️ همه‌ی درس‌ها", callback_data="jzback:0")])
     await send("\n".join(lines), reply_markup=InlineKeyboardMarkup(rows))
@@ -1149,6 +1173,61 @@ async def _export_course(query, user_id: int, fmt: str, course_id: str) -> None:
         os.unlink(tmp_path)
 
 
+async def _auto_save_to_active_course(message, user_id: int, note_id: str, filename: str, status) -> None:
+    """اگه درس فعال تنظیم شده باشه، فایل صوتیِ تازه‌آپلودشده رو خودکار خلاصه می‌کنه و تو همون درس ذخیره می‌کنه.
+    هر خطایی اینجا فقط یه پیام می‌ده و جریان عادیِ آپلود رو خراب نمی‌کنه."""
+    if status != "done" or not filename.lower().endswith(AUDIO_EXTS):
+        return
+    try:
+        active = (await api_request(user_id, "GET", "/jozve/active")).json().get("course")
+    except Exception:
+        logger.exception("Active course lookup failed")
+        return
+    if not active:
+        return
+
+    await message.reply_text(f"⭐ درس فعال: «{active['name']}» — در حال خلاصه‌سازی و ذخیره...")
+    try:
+        text = await _fetch_action_text(user_id, "summary", note_id)
+    except httpx.HTTPStatusError as e:
+        await message.reply_text(_error_message(e) + "\n(فایلت سر جاشه؛ با دکمه‌های بالا می‌تونی دستی ادامه بدی.)")
+        return
+    except Exception:
+        logger.exception("Auto summary failed")
+        await message.reply_text("خلاصه‌سازی خودکار انجام نشد؛ با دکمه‌های بالا می‌تونی دستی ادامه بدی.")
+        return
+    if not text or text.startswith("خلاصه‌ای ساخته نشد"):
+        await message.reply_text("خلاصه ساخته نشد، برای همین چیزی تو جزوه ذخیره نشد.")
+        return
+
+    await _send_long(message.reply_text, text)
+    try:
+        data = (
+            await api_request(
+                user_id, "POST", "/jozve/items",
+                json={"course_id": active["id"], "content": text, "note_id": note_id},
+            )
+        ).json()
+    except httpx.HTTPStatusError as e:
+        await message.reply_text(_jz_error(e))
+        return
+    except Exception:
+        logger.exception("Auto jozve save failed")
+        await message.reply_text("ذخیره‌ی خودکار انجام نشد؛ می‌تونی با «💾 ذخیره در جزوه» دستی ذخیره‌اش کنی.")
+        return
+    await message.reply_text(
+        f"✅ تو «{data['course_name']}» ذخیره شد — شماره {data['number']}",
+        reply_markup=InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton("↩️ لغو ذخیره", callback_data=f"jzundo:{data['id']}"),
+                    InlineKeyboardButton("⏹ خاموش کردن", callback_data="jzoff:0"),
+                ]
+            ]
+        ),
+    )
+
+
 async def _handle_jozve_button(query, user_id: int) -> None:
     chat_id = query.message.chat_id
     action, _, rest = query.data.partition(":")
@@ -1174,7 +1253,7 @@ async def _handle_jozve_button(query, user_id: int) -> None:
             if not data:
                 await query.message.reply_text("این خلاصه دیگه در دسترس نیست — دوباره خلاصه‌اش کن.")
                 return
-            await query.message.reply_text(_saved_message(data))
+            await query.message.reply_text(_saved_message(data), reply_markup=_activate_offer(data))
 
         elif action == "jznew":
             _pending_course_name[chat_id] = rest if rest in ("save", "create") else "create"
@@ -1267,6 +1346,25 @@ async def _handle_jozve_button(query, user_id: int) -> None:
                 ),
             )
 
+        elif action == "jzact":
+            data = (await api_request(user_id, "POST", f"/jozve/courses/{rest}/activate")).json()
+            await query.message.reply_text(
+                f"⭐ «{data['name']}» درس فعال شد.\n"
+                "از این به بعد هر ویس یا فایل صوتی که بفرستی خودکار به متن و خلاصه تبدیل می‌شه و تو این درس با شماره‌ی بعدی ذخیره می‌شه.\n\n"
+                "⚠️ هزینه‌ی هر خلاصه همون هزینه‌ی دکمه‌ی «📝 خلاصه» ـه.",
+                reply_markup=InlineKeyboardMarkup(
+                    [[InlineKeyboardButton("⏹ خاموش کردن", callback_data="jzoff:0")]]
+                ),
+            )
+
+        elif action == "jzoff":
+            await api_request(user_id, "DELETE", "/jozve/active")
+            await query.message.reply_text("⏹ درس فعال خاموش شد. فایل‌هات مثل قبل فقط پردازش می‌شن.")
+
+        elif action == "jzundo":
+            await api_request(user_id, "DELETE", f"/jozve/items/{rest}")
+            await query.message.reply_text("↩️ از جزوه برداشته شد (خودِ فایل و نوتت سر جاشه).")
+
         elif action == "jzx":
             fmt, _, course_id = rest.partition(":")
             await _export_course(query, user_id, fmt, course_id)
@@ -1292,7 +1390,7 @@ async def _handle_new_course_name(update: Update, user_id: int, chat_id: int, te
         if mode == "save":
             data = await _save_summary_to_course(user_id, chat_id, course["id"])
             if data:
-                await update.message.reply_text(_saved_message(data))
+                await update.message.reply_text(_saved_message(data), reply_markup=_activate_offer(data))
             else:
                 await update.message.reply_text(f"درس «{course['name']}» ساخته شد، ولی خلاصه‌ی منتظر ذخیره نبود.")
             return

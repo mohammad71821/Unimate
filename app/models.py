@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import String, DateTime, ForeignKey, func, BigInteger, Text, Boolean, UniqueConstraint
+from sqlalchemy import String, DateTime, ForeignKey, func, BigInteger, Text, Boolean, UniqueConstraint, false
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -146,6 +146,8 @@ class Course(Base):
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     owner_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), index=True)
     name: Mapped[str] = mapped_column(String(200))
+    # درس فعال: فایل‌های صوتیِ جدید خودکار خلاصه و توی همین درس ذخیره می‌شن (حداکثر یکی برای هر کاربر)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
