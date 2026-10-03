@@ -1,7 +1,7 @@
 import asyncio
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
-from app.routers import admin, ai, auth, chat, flashcards, notes, redeem, reminders, webapp
+from app.routers import admin, ai, auth, chat, flashcards, jozve, notes, redeem, reminders, webapp
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -22,6 +22,7 @@ app.include_router(reminders.router)
 app.include_router(admin.router)
 app.include_router(redeem.router)
 app.include_router(flashcards.router)
+app.include_router(jozve.router)
 app.include_router(webapp.router)
 
 @app.get("/health")

@@ -68,6 +68,16 @@ _review_sessions: dict[int, dict] = {}
 # (اضافه به مرور یا فقط PDF). تا وقتی کاربر انتخاب نکنه، خودکار ذخیره نمی‌شن.
 _pending_flashcards: dict[int, dict] = {}
 
+# --- جزوه ---
+# chat_id -> آخرین خلاصه‌ای که نشون دادیم و کاربر می‌تونه تو جزوه ذخیره‌اش کنه
+_pending_jozve_summary: dict[int, dict] = {}
+# chat_id -> "save" (بعد از ساخت درس، خلاصه‌ی منتظر هم ذخیره بشه) یا "create" (فقط ساخت درس)
+_pending_course_name: dict[int, str] = {}
+# chat_id -> item_id ای که منتظر شماره‌ی جدید هستیم
+_pending_item_number: dict[int, str] = {}
+# chat_id -> item_id ای که قراره به درس دیگه منتقل بشه
+_pending_item_move: dict[int, str] = {}
+
 TELEGRAM_MAX_LEN = 4000
 
 # --- محدودیت تعداد درخواست، برای جلوگیری از سوءاستفاده/مصرف بی‌رویه سهمیه‌ی AI ---
@@ -97,11 +107,27 @@ def _check_rate_limit(user_id: int) -> str | None:
     return None
 
 
+def _skips_rate_limit(update: Update) -> bool:
+    """منوی جزوه هیچ مصرف AI ای نداره، پس مشمول سقف تعداد درخواست نیست (به‌جز ساخت فایل خروجی)."""
+    query = update.callback_query
+    if query and query.data:
+        return query.data.startswith("jz") and not query.data.startswith("jzx:")
+    message = update.message
+    if message and message.text:
+        chat_id = update.effective_chat.id if update.effective_chat else None
+        return (
+            message.text == BTN_JOZVE
+            or chat_id in _pending_course_name
+            or chat_id in _pending_item_number
+        )
+    return False
+
+
 def rate_limited(handler):
     @functools.wraps(handler)
     async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_id = update.effective_user.id if update.effective_user else None
-        if user_id is not None:
+        if user_id is not None and not _skips_rate_limit(update):
             error = _check_rate_limit(user_id)
             if error:
                 target = update.message or (update.callback_query and update.callback_query.message)
@@ -122,11 +148,15 @@ BTN_REDEEM = "🎟 فعال‌سازی کد"
 BTN_REVIEW = "🔁 مرور فلش‌کارت‌ها"
 BTN_OPEN_APP = "🚀 باز کردن اپ"
 BTN_INVITE = "🎁 دعوت از دوستان"
+BTN_JOZVE = "📒 جزوه‌هام"
 
 MAIN_KEYBOARD = ReplyKeyboardMarkup(
-    [[BTN_SEARCH], [BTN_MY_NOTES, BTN_HELP], [BTN_CREDITS, BTN_REDEEM], [BTN_REVIEW, BTN_INVITE]],
+    [[BTN_SEARCH], [BTN_MY_NOTES, BTN_JOZVE], [BTN_HELP, BTN_CREDITS], [BTN_REDEEM, BTN_REVIEW], [BTN_INVITE]],
     resize_keyboard=True,
 )
+
+# متن دکمه‌های منوی اصلی؛ اگه کاربر وسط یه مرحله‌ی «منتظر متن» یکی‌شون رو بزنه، اون مرحله لغو می‌شه
+_MAIN_BUTTON_TEXTS = {BTN_SEARCH, BTN_MY_NOTES, BTN_JOZVE, BTN_HELP, BTN_CREDITS, BTN_REDEEM, BTN_REVIEW, BTN_INVITE}
 
 MIN_SLIDES = 3
 MAX_SLIDES = 20
@@ -252,6 +282,8 @@ HELP_TEXT = (
     f"با «{BTN_REVIEW}» یا /review فلش‌کارت‌های معوقه رو مرور می‌کنی — توی "
     "مرور، اگه کارتی رو دیگه نمی‌خوای، بدون اینکه مرورش کنی می‌تونی حذفش کنی. "
     "هر روز ساعت ۱۰ صبح اگه کارت معوقه داشته باشی خودم یادت می‌اندازم.\n\n"
+    f"با «{BTN_JOZVE}» خلاصه‌هات رو بر اساس درس دسته‌بندی و شماره‌گذاری می‌کنی و هر وقت خواستی از هر درس "
+    "یه جزوه‌ی مرتب (PDF یا DOCX) می‌گیری. زیر هر خلاصه دکمه‌ی «ذخیره در جزوه» هست.\n\n"
     "/studyplan روی یه فایل فعال، یه برنامه‌ی مطالعاتی روزانه می‌سازه.\n"
     "/remind هم یادآوری می‌سازه (مثلاً /remind 2h وقت مطالعه).\n"
     "/credits وضعیت پلن و اعتبار باقی‌مونده‌ت رو نشون می‌ده.\n"
@@ -397,6 +429,8 @@ async def _run_command_action(action: str, update: Update) -> None:
         await update.message.reply_text(_error_message(e))
         return
     await _send_long(update.message.reply_text, text)
+    if action == "summary":
+        await _offer_jozve_save(update.message, chat_id, note_id, text)
 
 
 @rate_limited
@@ -617,6 +651,10 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         await _handle_flashcards_pdf(query, user_id, note_id)
         return
 
+    if query.data.startswith("jz"):
+        await _handle_jozve_button(query, user_id)
+        return
+
     try:
         action, note_id = query.data.split(":", 1)
     except ValueError:
@@ -648,6 +686,8 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         return
 
     await _send_long(query.message.reply_text, text)
+    if action == "summary":
+        await _offer_jozve_save(query.message, query.message.chat_id, note_id, text)
 
 
 async def _handle_flashcards_save(query, user_id: int, note_id: str) -> None:
@@ -922,11 +962,395 @@ async def cmd_search(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         await update.message.reply_text("چی می‌خوای بین نوت‌هات جستجو کنی؟")
 
 
+# ===================== جزوه (دسته‌بندی خلاصه‌ها بر اساس درس) =====================
+JOZVE_PAGE_SIZE = 10
+_FA_DIGITS = str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "01234567890123456789")
+
+
+def _jz_error(e: httpx.HTTPStatusError) -> str:
+    """پیام‌های فارسیِ خودِ router جزوه (۴۰۰/۴۰۴) رو مستقیم نشون می‌ده؛ بقیه‌ی خطاها مثل قبل."""
+    if e.response.status_code in (400, 404):
+        try:
+            detail = e.response.json().get("detail")
+        except ValueError:
+            detail = None
+        if isinstance(detail, str):
+            return detail
+    return _error_message(e)
+
+
+def _jz_short(text: str, n: int = 40) -> str:
+    text = " ".join((text or "").split())
+    return text if len(text) <= n else text[: n - 1] + "…"
+
+
+def _jz_courses_keyboard(courses: list, prefix: str, new_cb: str | None) -> InlineKeyboardMarkup:
+    rows = [
+        [
+            InlineKeyboardButton(
+                f"📘 {_jz_short(c['name'], 30)} ({c['items_count']})",
+                callback_data=f"{prefix}:{c['id']}",
+            )
+        ]
+        for c in courses
+    ]
+    if new_cb:
+        rows.append([InlineKeyboardButton("➕ درس جدید", callback_data=new_cb)])
+    return InlineKeyboardMarkup(rows)
+
+
+async def _jz_nav(query, text: str, reply_markup=None) -> None:
+    """منوها رو روی همون پیام ویرایش می‌کنه تا چت شلوغ نشه؛ اگه نشد، پیام جدید می‌فرسته."""
+    try:
+        await query.message.edit_text(text, reply_markup=reply_markup)
+    except Exception:
+        await query.message.reply_text(text, reply_markup=reply_markup)
+
+
+async def _offer_jozve_save(message, chat_id: int, note_id: str, text: str) -> None:
+    if not text or text.startswith("خلاصه‌ای ساخته نشد"):
+        return
+    _pending_jozve_summary[chat_id] = {"note_id": note_id, "text": text}
+    await message.reply_text(
+        "می‌خوای این خلاصه تو جزوه‌ات (دسته‌بندی‌شده بر اساس درس) ذخیره بشه؟",
+        reply_markup=InlineKeyboardMarkup(
+            [[InlineKeyboardButton("💾 ذخیره در جزوه", callback_data=f"jzsave:{note_id}")]]
+        ),
+    )
+
+
+async def _course_name(user_id: int, course_id: str) -> str:
+    courses = (await api_request(user_id, "GET", "/jozve/courses")).json()
+    return next((c["name"] for c in courses if c["id"] == course_id), "درس")
+
+
+async def _save_summary_to_course(user_id: int, chat_id: int, course_id: str) -> dict | None:
+    pending = _pending_jozve_summary.get(chat_id)
+    if not pending:
+        return None
+    resp = await api_request(
+        user_id, "POST", "/jozve/items",
+        json={"course_id": course_id, "content": pending["text"], "note_id": pending["note_id"]},
+    )
+    _pending_jozve_summary.pop(chat_id, None)  # جلوگیری از ذخیره‌ی تکراریِ همون خلاصه
+    return resp.json()
+
+
+def _saved_message(data: dict) -> str:
+    return (
+        f"✅ تو «{data['course_name']}» ذخیره شد — شماره {data['number']}\n"
+        f"برای تغییر شماره، انتقال یا گرفتن جزوه: «{BTN_JOZVE}»"
+    )
+
+
+async def _show_courses(send, user_id: int) -> None:
+    courses = (await api_request(user_id, "GET", "/jozve/courses")).json()
+    if not courses:
+        await send(
+            "هنوز درسی نساختی. وقتی یه خلاصه رو «ذخیره در جزوه» کنی همون موقع می‌تونی درس بسازی؛ "
+            "یا از دکمه‌ی زیر همین الان یکی بساز.",
+            reply_markup=InlineKeyboardMarkup(
+                [[InlineKeyboardButton("➕ درس جدید", callback_data="jznew:create")]]
+            ),
+        )
+        return
+    await send(
+        "📒 جزوه‌هام — یه درس رو انتخاب کن:",
+        reply_markup=_jz_courses_keyboard(courses, "jzo", "jznew:create"),
+    )
+
+
+async def _show_course(send, user_id: int, course_id: str) -> None:
+    data = (await api_request(user_id, "GET", f"/jozve/courses/{course_id}/items")).json()
+    items = data["items"]
+    lines = [f"📘 {data['course']['name']}", f"{len(items)} خلاصه", ""]
+    for it in items[:40]:
+        lines.append(f"{it['number']}. {_jz_short(it.get('title') or 'بدون عنوان')}")
+    if len(items) > 40:
+        lines.append(f"… و {len(items) - 40} خلاصه‌ی دیگه")
+    rows = []
+    if items:
+        rows.append(
+            [
+                InlineKeyboardButton("📄 PDF", callback_data=f"jzx:pdf:{course_id}"),
+                InlineKeyboardButton("📝 DOCX", callback_data=f"jzx:docx:{course_id}"),
+            ]
+        )
+        rows.append([InlineKeyboardButton("✏️ مدیریت خلاصه‌ها", callback_data=f"jzm:{course_id}:0")])
+    rows.append([InlineKeyboardButton("🗑 حذف درس", callback_data=f"jzcd:{course_id}")])
+    rows.append([InlineKeyboardButton("⬅️ همه‌ی درس‌ها", callback_data="jzback:0")])
+    await send("\n".join(lines), reply_markup=InlineKeyboardMarkup(rows))
+
+
+async def _show_manage(send, user_id: int, course_id: str, page: int) -> None:
+    data = (await api_request(user_id, "GET", f"/jozve/courses/{course_id}/items")).json()
+    items = data["items"]
+    pages = max(1, -(-len(items) // JOZVE_PAGE_SIZE))
+    page = min(max(page, 0), pages - 1)
+    chunk = items[page * JOZVE_PAGE_SIZE : (page + 1) * JOZVE_PAGE_SIZE]
+    rows = [
+        [
+            InlineKeyboardButton(
+                f"{it['number']}. {_jz_short(it.get('title') or 'بدون عنوان', 35)}",
+                callback_data=f"jzi:{it['id']}",
+            )
+        ]
+        for it in chunk
+    ]
+    nav = []
+    if page > 0:
+        nav.append(InlineKeyboardButton("◀️ قبلی", callback_data=f"jzm:{course_id}:{page - 1}"))
+    if page < pages - 1:
+        nav.append(InlineKeyboardButton("بعدی ▶️", callback_data=f"jzm:{course_id}:{page + 1}"))
+    if nav:
+        rows.append(nav)
+    rows.append([InlineKeyboardButton("⬅️ برگشت به درس", callback_data=f"jzo:{course_id}")])
+    title = f"✏️ {data['course']['name']}\nیه خلاصه رو برای دیدن، تغییر شماره، انتقال یا حذف انتخاب کن"
+    if pages > 1:
+        title += f" (صفحه {page + 1} از {pages})"
+    await send(title, reply_markup=InlineKeyboardMarkup(rows))
+
+
+async def _show_item(query, user_id: int, item_id: str) -> None:
+    item = (await api_request(user_id, "GET", f"/jozve/items/{item_id}")).json()
+    head = f"📌 شماره {item['number']} — {item.get('title') or 'بدون عنوان'}"
+    await _send_long(query.message.reply_text, f"{head}\n\n{item['content']}")
+    await query.message.reply_text(
+        "چیکار کنم؟",
+        reply_markup=InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton("🔢 تغییر شماره", callback_data=f"jzn:{item_id}"),
+                    InlineKeyboardButton("📂 انتقال به درس دیگه", callback_data=f"jzmv:{item_id}"),
+                ],
+                [InlineKeyboardButton("🗑 حذف", callback_data=f"jzd:{item_id}")],
+                [InlineKeyboardButton("⬅️ برگشت", callback_data=f"jzm:{item['course_id']}:0")],
+            ]
+        ),
+    )
+
+
+async def _export_course(query, user_id: int, fmt: str, course_id: str) -> None:
+    if fmt not in ("pdf", "docx"):
+        return
+    await query.message.reply_text("در حال ساخت فایل...")
+    name = await _course_name(user_id, course_id)
+    resp = await api_request(
+        user_id, "GET", f"/jozve/courses/{course_id}/export", params={"format": fmt}, timeout=120
+    )
+    safe = re.sub(r'[\\/:*?"<>|\s]+', "_", name).strip("_")[:50] or "jozve"
+    with tempfile.NamedTemporaryFile(delete=False, suffix=f".{fmt}") as tmp:
+        tmp.write(resp.content)
+        tmp_path = tmp.name
+    try:
+        with open(tmp_path, "rb") as f:
+            await query.message.reply_document(f, filename=f"{safe}.{fmt}")
+    finally:
+        os.unlink(tmp_path)
+
+
+async def _handle_jozve_button(query, user_id: int) -> None:
+    chat_id = query.message.chat_id
+    action, _, rest = query.data.partition(":")
+    nav = functools.partial(_jz_nav, query)
+    try:
+        if action == "jzsave":
+            pending = _pending_jozve_summary.get(chat_id)
+            if not pending or pending["note_id"] != rest:
+                await query.message.reply_text("این خلاصه دیگه در دسترس نیست — دوباره خلاصه‌اش کن.")
+                return
+            courses = (await api_request(user_id, "GET", "/jozve/courses")).json()
+            if not courses:
+                _pending_course_name[chat_id] = "save"
+                await query.message.reply_text("هنوز درسی نداری. اسم درس رو بفرست (یا بنویس «لغو»):")
+                return
+            await query.message.reply_text(
+                "تو کدوم درس ذخیره بشه؟",
+                reply_markup=_jz_courses_keyboard(courses, "jzc", "jznew:save"),
+            )
+
+        elif action == "jzc":
+            data = await _save_summary_to_course(user_id, chat_id, rest)
+            if not data:
+                await query.message.reply_text("این خلاصه دیگه در دسترس نیست — دوباره خلاصه‌اش کن.")
+                return
+            await query.message.reply_text(_saved_message(data))
+
+        elif action == "jznew":
+            _pending_course_name[chat_id] = rest if rest in ("save", "create") else "create"
+            await query.message.reply_text("اسم درس رو بفرست (یا بنویس «لغو»):")
+
+        elif action == "jzback":
+            await _show_courses(nav, user_id)
+
+        elif action == "jzo":
+            await _show_course(nav, user_id, rest)
+
+        elif action == "jzm":
+            course_id, _, page = rest.partition(":")
+            await _show_manage(nav, user_id, course_id, int(page or 0))
+
+        elif action == "jzi":
+            await _show_item(query, user_id, rest)
+
+        elif action == "jzn":
+            _pending_item_number[chat_id] = rest
+            await query.message.reply_text("شماره‌ی جدید رو بفرست (یه عدد صحیح، مثلاً 3 — یا بنویس «لغو»):")
+
+        elif action == "jzmv":
+            item = (await api_request(user_id, "GET", f"/jozve/items/{rest}")).json()
+            courses = (await api_request(user_id, "GET", "/jozve/courses")).json()
+            others = [c for c in courses if c["id"] != item["course_id"]]
+            if not others:
+                await query.message.reply_text(
+                    f"درس دیگه‌ای نداری. اول از «{BTN_JOZVE}» یه درس جدید بساز."
+                )
+                return
+            _pending_item_move[chat_id] = rest
+            await query.message.reply_text(
+                "به کدوم درس منتقل بشه؟", reply_markup=_jz_courses_keyboard(others, "jzmt", None)
+            )
+
+        elif action == "jzmt":
+            item_id = _pending_item_move.pop(chat_id, None)
+            if not item_id:
+                await query.message.reply_text("این درخواست منقضی شده؛ دوباره از «مدیریت خلاصه‌ها» انتقال رو بزن.")
+                return
+            data = (
+                await api_request(user_id, "PATCH", f"/jozve/items/{item_id}", json={"course_id": rest})
+            ).json()
+            await query.message.reply_text(
+                f"✅ منتقل شد (شماره {data['number']} توی درس جدید).",
+                reply_markup=InlineKeyboardMarkup(
+                    [[InlineKeyboardButton("📘 باز کردن درس", callback_data=f"jzo:{data['course_id']}")]]
+                ),
+            )
+
+        elif action == "jzd":
+            await query.message.reply_text(
+                "این خلاصه برای همیشه از جزوه حذف بشه؟",
+                reply_markup=InlineKeyboardMarkup(
+                    [
+                        [
+                            InlineKeyboardButton("✅ بله، حذف کن", callback_data=f"jzdy:{rest}"),
+                            InlineKeyboardButton("انصراف", callback_data=f"jzi:{rest}"),
+                        ]
+                    ]
+                ),
+            )
+
+        elif action == "jzdy":
+            await api_request(user_id, "DELETE", f"/jozve/items/{rest}")
+            await query.message.reply_text("🗑 حذف شد.")
+
+        elif action == "jzcd":
+            name = await _course_name(user_id, rest)
+            await nav(
+                f"درس «{name}» با همه‌ی خلاصه‌های داخلش حذف بشه؟\n"
+                "(خودِ فایل‌ها و نوت‌هات دست‌نخورده می‌مونن.)",
+                reply_markup=InlineKeyboardMarkup(
+                    [
+                        [
+                            InlineKeyboardButton("✅ بله، حذف کن", callback_data=f"jzcdy:{rest}"),
+                            InlineKeyboardButton("انصراف", callback_data=f"jzo:{rest}"),
+                        ]
+                    ]
+                ),
+            )
+
+        elif action == "jzcdy":
+            await api_request(user_id, "DELETE", f"/jozve/courses/{rest}")
+            await nav(
+                "🗑 درس حذف شد.",
+                reply_markup=InlineKeyboardMarkup(
+                    [[InlineKeyboardButton("⬅️ همه‌ی درس‌ها", callback_data="jzback:0")]]
+                ),
+            )
+
+        elif action == "jzx":
+            fmt, _, course_id = rest.partition(":")
+            await _export_course(query, user_id, fmt, course_id)
+
+    except httpx.HTTPStatusError as e:
+        await query.message.reply_text(_jz_error(e))
+    except Exception:
+        logger.exception("Jozve button failed: %s", query.data)
+        await query.message.reply_text("یه خطای غیرمنتظره پیش اومد.")
+
+
+async def _handle_new_course_name(update: Update, user_id: int, chat_id: int, text: str, mode: str) -> None:
+    name = " ".join(text.split())
+    if name in ("لغو", "انصراف"):
+        await update.message.reply_text("لغو شد.")
+        return
+    if not name or len(name) > 100:
+        _pending_course_name[chat_id] = mode
+        await update.message.reply_text("اسم درس باید بین ۱ تا ۱۰۰ حرف باشه. دوباره بفرست (یا بنویس «لغو»):")
+        return
+    try:
+        course = (await api_request(user_id, "POST", "/jozve/courses", json={"name": name})).json()
+        if mode == "save":
+            data = await _save_summary_to_course(user_id, chat_id, course["id"])
+            if data:
+                await update.message.reply_text(_saved_message(data))
+            else:
+                await update.message.reply_text(f"درس «{course['name']}» ساخته شد، ولی خلاصه‌ی منتظر ذخیره نبود.")
+            return
+    except httpx.HTTPStatusError as e:
+        await update.message.reply_text(_jz_error(e))
+        return
+    note = "✅ درس «{}» ساخته شد.".format(course["name"]) if course.get("created") else "این درس از قبل داشتی."
+    await update.message.reply_text(
+        note,
+        reply_markup=InlineKeyboardMarkup(
+            [[InlineKeyboardButton("📘 باز کردن درس", callback_data=f"jzo:{course['id']}")]]
+        ),
+    )
+
+
+async def _handle_new_item_number(update: Update, user_id: int, chat_id: int, item_id: str, text: str) -> None:
+    raw = text.strip().translate(_FA_DIGITS)
+    if raw in ("لغو", "انصراف"):
+        await update.message.reply_text("لغو شد.")
+        return
+    if not raw.isdigit() or not (1 <= int(raw) <= 9999):
+        _pending_item_number[chat_id] = item_id
+        await update.message.reply_text("یه عدد صحیح بین 1 تا 9999 بفرست (یا بنویس «لغو»):")
+        return
+    try:
+        data = (
+            await api_request(user_id, "PATCH", f"/jozve/items/{item_id}", json={"number": int(raw)})
+        ).json()
+    except httpx.HTTPStatusError as e:
+        await update.message.reply_text(_jz_error(e))
+        return
+    await update.message.reply_text(
+        f"✅ شماره‌ی این خلاصه شد {data['number']}.",
+        reply_markup=InlineKeyboardMarkup(
+            [[InlineKeyboardButton("📘 باز کردن درس", callback_data=f"jzo:{data['course_id']}")]]
+        ),
+    )
+
+
 @rate_limited
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     chat_id = update.effective_chat.id
     user_id = update.effective_user.id
     text = update.message.text
+
+    if text in _MAIN_BUTTON_TEXTS:
+        _pending_course_name.pop(chat_id, None)
+        _pending_item_number.pop(chat_id, None)
+
+    if chat_id in _pending_course_name:
+        mode = _pending_course_name.pop(chat_id)
+        await _handle_new_course_name(update, user_id, chat_id, text, mode)
+        return
+
+    if chat_id in _pending_item_number:
+        item_id = _pending_item_number.pop(chat_id)
+        await _handle_new_item_number(update, user_id, chat_id, item_id, text)
+        return
 
     if chat_id in _pending_study_plan:
         note_id = _pending_study_plan.pop(chat_id)
@@ -963,6 +1387,13 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             await _send_slides(user_id, update.message, note_id, count)
         except httpx.HTTPStatusError as e:
             await update.message.reply_text(_error_message(e))
+        return
+
+    if text == BTN_JOZVE:
+        try:
+            await _show_courses(update.message.reply_text, user_id)
+        except httpx.HTTPStatusError as e:
+            await update.message.reply_text(_jz_error(e))
         return
 
     if text == BTN_SEARCH:

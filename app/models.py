@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import String, DateTime, ForeignKey, func, BigInteger, Text, Boolean
+from sqlalchemy import String, DateTime, ForeignKey, func, BigInteger, Text, Boolean, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -134,4 +134,31 @@ class Referral(Base):
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     referrer_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), index=True)
     referred_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), unique=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class Course(Base):
+    """یه درس (مثلاً «روانشناسی رشد») که کاربر خلاصه‌هاش رو توش دسته‌بندی می‌کنه."""
+
+    __tablename__ = "courses"
+    __table_args__ = (UniqueConstraint("owner_id", "name", name="uq_courses_owner_name"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    owner_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), index=True)
+    name: Mapped[str] = mapped_column(String(200))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class JozveItem(Base):
+    """یه خلاصه‌ی ذخیره‌شده توی جزوه‌ی یه درس، با شماره‌ی دلخواه کاربر."""
+
+    __tablename__ = "jozve_items"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    owner_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), index=True)
+    course_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("courses.id", ondelete="CASCADE"), index=True)
+    note_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("notes.id", ondelete="SET NULL"), nullable=True)
+    number: Mapped[int] = mapped_column(default=1)
+    title: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    content: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
