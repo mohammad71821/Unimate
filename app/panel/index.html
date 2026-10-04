@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#5b5fef">
+<title>یونیمیت</title>
+<style>
+@font-face{font-family:V;src:url(/panel/fonts/Vazirmatn-Regular.ttf);font-weight:400}
+@font-face{font-family:V;src:url(/panel/fonts/Vazirmatn-Bold.ttf);font-weight:700}
+:root{--bg:#f4f5fb;--card:#fff;--tx:#1b1d2e;--mu:#7a7f99;--bd:#e6e8f3;--p:#5b5fef;--p2:#8b5cf6;--ok:#12b76a;--er:#f04438;--am:#f59e0b;--sh:0 8px 30px rgba(60,64,140,.10);--g:linear-gradient(135deg,#5b5fef,#8b5cf6)}
+@media(prefers-color-scheme:dark){:root{--bg:#0d0f1d;--card:#171a2e;--tx:#eceefb;--mu:#8e93b3;--bd:#262a45;--sh:0 8px 30px rgba(0,0,0,.35)}}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{margin:0;background:var(--bg);color:var(--tx);font:400 15px/1.7 V,Tahoma,sans-serif;min-height:100vh;padding-bottom:84px}
+body:before{content:"";position:fixed;inset:0;z-index:-1;background:radial-gradient(520px 320px at 85% -5%,rgba(91,95,239,.25),transparent),radial-gradient(420px 300px at 0% 30%,rgba(139,92,246,.16),transparent)}
+button{font:inherit;color:inherit;cursor:pointer;border:0;background:none}
+.wrap{max-width:760px;margin:0 auto;padding:18px 16px}
+.hero{background:var(--g);color:#fff;border-radius:26px;padding:22px;box-shadow:0 14px 40px rgba(91,95,239,.35);position:relative;overflow:hidden}
+.hero:after{content:"";position:absolute;left:-40px;bottom:-60px;width:180px;height:180px;border-radius:50%;background:rgba(255,255,255,.12)}
+.hero h1{margin:0 0 4px;font-size:22px}.hero p{margin:0;opacity:.85;font-size:13px}
+.chips{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px;position:relative;z-index:1}
+.chip{background:rgba(255,255,255,.2);backdrop-filter:blur(6px);border-radius:99px;padding:5px 12px;font-size:12.5px}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:20px;box-shadow:var(--sh)}
+.row{display:flex;align-items:center;gap:12px;padding:13px 14px;border-bottom:1px solid var(--bd);width:100%;text-align:right}
+.row:last-child{border:0}.row:active{background:rgba(91,95,239,.07)}
+.ic{width:44px;height:44px;border-radius:14px;display:grid;place-items:center;font-size:21px;background:rgba(91,95,239,.12);flex:none}
+.grow{flex:1;min-width:0}.t{font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.s{color:var(--mu);font-size:12.5px}
+.badge{font-size:11.5px;border-radius:99px;padding:2px 9px;background:rgba(18,183,106,.14);color:var(--ok);flex:none}
+.badge.bad{background:rgba(240,68,56,.13);color:var(--er)}.badge.mid{background:rgba(245,158,11,.15);color:var(--am)}
+h2{font-size:16px;margin:22px 4px 10px;display:flex;justify-content:space-between;align-items:center}
+.btn{background:var(--g);color:#fff;border-radius:14px;padding:11px 18px;font-weight:700;box-shadow:0 8px 20px rgba(91,95,239,.3);transition:.15s}
+.btn:active{transform:scale(.96)}.btn.ghost{background:rgba(91,95,239,.12);color:var(--p);box-shadow:none}.btn.sm{padding:7px 12px;font-size:13px}.btn.red{background:rgba(240,68,56,.12);color:var(--er);box-shadow:none}
+.drop{border:2px dashed var(--bd);border-radius:20px;padding:22px;text-align:center;color:var(--mu);margin-top:14px;transition:.2s;background:var(--card)}
+.drop.on{border-color:var(--p);background:rgba(91,95,239,.08)}
+.bar{height:8px;border-radius:9px;background:var(--bd);overflow:hidden;margin-top:10px}.bar i{display:block;height:100%;width:0;background:var(--g);border-radius:9px;transition:width .3s}
+.nav{position:fixed;bottom:0;inset-inline:0;display:flex;justify-content:center;gap:6px;padding:10px 14px calc(10px + env(safe-area-inset-bottom));background:color-mix(in srgb,var(--card) 88%,transparent);backdrop-filter:blur(14px);border-top:1px solid var(--bd);z-index:5}
+.nav button{flex:1;max-width:200px;border-radius:14px;padding:8px;font-size:12.5px;color:var(--mu);display:grid;gap:0;justify-items:center}
+.nav button b{font-size:20px;font-weight:400}.nav .on{color:var(--p);background:rgba(91,95,239,.12);font-weight:700}
+.sheet{position:fixed;inset:0;background:rgba(10,12,30,.5);z-index:10;display:flex;align-items:flex-end;justify-content:center;animation:f .2s}
+.sheet>div{background:var(--card);width:100%;max-width:760px;max-height:90vh;overflow:auto;border-radius:26px 26px 0 0;padding:20px;animation:u .28s cubic-bezier(.2,.9,.3,1)}
+@keyframes u{from{transform:translateY(60px);opacity:0}}@keyframes f{from{opacity:0}}
+.full{align-items:stretch}.full>div{max-height:none;height:100%;border-radius:0;max-width:760px}
+.read h3{font-size:19px;margin:22px 0 6px;color:var(--p)}.read h4{font-size:16px;margin:16px 0 4px}.read p{margin:8px 0}.read li{margin:5px 0}
+.read .ex{background:rgba(245,158,11,.14);border-inline-start:4px solid var(--am);padding:9px 12px;border-radius:10px;margin:10px 0}
+.toast{position:fixed;top:14px;left:50%;transform:translateX(-50%);background:var(--tx);color:var(--bg);padding:10px 18px;border-radius:14px;z-index:30;box-shadow:var(--sh);max-width:90vw}
+.job{margin-top:14px;padding:14px 16px}.gate{min-height:80vh;display:grid;place-items:center;text-align:center;padding:24px}
+.gate .logo{width:84px;height:84px;border-radius:26px;background:var(--g);display:grid;place-items:center;font-size:42px;margin:0 auto 18px;box-shadow:0 14px 40px rgba(91,95,239,.4)}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px}
+.course{padding:16px;border-radius:20px;text-align:right;color:#fff;min-height:104px;position:relative;box-shadow:var(--sh)}
+.course b{display:block;font-size:16px}.course span{font-size:12.5px;opacity:.9}.course em{position:absolute;left:12px;top:10px;font-style:normal}
+.sk{height:64px;border-radius:16px;margin-bottom:10px;background:linear-gradient(90deg,var(--bd),transparent,var(--bd));background-size:200% 100%;animation:s 1.2s infinite}@keyframes s{to{background-position:-200% 0}}
+.flex{display:flex;gap:8px;flex-wrap:wrap}input[type=text]{width:100%;padding:12px;border-radius:14px;border:1px solid var(--bd);background:var(--bg);color:var(--tx);font:inherit}
+.empty{text-align:center;color:var(--mu);padding:34px 10px}.empty b{font-size:40px;display:block}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+const $=s=>document.querySelector(s),T=()=>localStorage.getItem('ut');
+const COL=['#5b5fef,#8b5cf6','#0ea5a4,#22c55e','#f97316,#ef4444','#ec4899,#8b5cf6','#0284c7,#6366f1','#d97706,#f59e0b'];
+let S={tab:'files',notes:null,courses:null,me:null,job:null,course:null,items:null};
+function toast(m){const e=document.createElement('div');e.className='toast';e.textContent=m;document.body.appendChild(e);setTimeout(()=>e.remove(),3200)}
+async function api(p,o={}){const h={Authorization:'Bearer '+T(),...(o.json?{'Content-Type':'application/json'}:{})};
+ const r=await fetch(p,{method:o.method||'GET',headers:h,body:o.json?JSON.stringify(o.json):undefined});
+ if(r.status===401){localStorage.removeItem('ut');gate();throw 0}
+ if(!r.ok){let d='خطایی پیش اومد';try{d=(await r.json()).detail||d}catch(e){}throw new Error(typeof d==='string'?d:'خطایی پیش اومد')}
+ return o.raw?r:r.json()}
+async function dl(p,name){try{const r=await api(p,{raw:1}),b=await r.blob(),a=document.createElement('a');a.href=URL.createObjectURL(b);a.download=name;a.click()}catch(e){if(e)toast(e.message)}}
+const ico=n=>/\.(ogg|oga|mp3|m4a|wav|aac|opus|flac)$/i.test(n)?'🎙':/\.pdf$/i.test(n)?'📄':/\.pptx?$/i.test(n)?'📊':/\.(jpe?g|png|webp)$/i.test(n)?'🖼':'📝';
+const sz=b=>b>1e6?(b/1e6).toFixed(1)+' مگابایت':Math.max(1,Math.round(b/1e3))+' کیلوبایت';
+const ago=d=>{const s=(Date.now()-new Date(d))/1e3;return s<90?'همین الان':s<3600?Math.round(s/60)+' دقیقه پیش':s<86400?Math.round(s/3600)+' ساعت پیش':Math.round(s/86400)+' روز پیش'};
+const esc=s=>String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+function md(t){let o='',ul=0;for(const l of t.split('\n')){const x=l.trim();if(!x){continue}
+ const li=x.match(/^[-*•]\s+(.*)/);if(li){if(!ul){o+='<ul>';ul=1}o+='<li>'+esc(li[1])+'</li>';continue}if(ul){o+='</ul>';ul=0}
+ const h=x.match(/^(#{1,6})\s*(.*)/);if(h)o+=h[1].length<3?'<h3>'+esc(h[2])+'</h3>':'<h4>'+esc(h[2])+'</h4>';
+ else if(x.startsWith('⭐'))o+='<div class="ex">'+esc(x.replace(/\*\*/g,''))+'</div>';else o+='<p>'+esc(x.replace(/\*\*/g,''))+'</p>'}
+ return o+(ul?'</ul>':'')}
+function sheet(html,full){const s=document.createElement('div');s.className='sheet'+(full?' full':'');s.innerHTML='<div>'+html+'</div>';
+ s.onclick=e=>{if(e.target===s)s.remove()};document.body.appendChild(s);s.close=()=>s.remove();return s}
+function gate(){$('#app').innerHTML=`<div class="gate"><div><div class="logo">🎓</div><h1>یونیمیت</h1><p style="color:var(--mu)">دستیار هوشمند درس و جزوه‌ی تو<br>برای ورود، تو ربات دکمه‌ی <b>«🌐 وب‌اپ»</b> رو بزن.</p></div></div>`}
+async function boot(){const q=new URLSearchParams(location.search),c=q.get('code');
+ if(c){try{const r=await fetch('/panel/exchange',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code:c})});
+  if(r.ok)localStorage.setItem('ut',(await r.json()).access_token);else toast('لینک ورود منقضی شده؛ از ربات دوباره بگیر')}catch(e){}history.replaceState(null,'',location.pathname)}
+ if(!T())return gate();render();load();setInterval(()=>{if(!document.hidden){load(1);jobs()}},8000)}
+async function load(quiet){try{const[n,c,m]=await Promise.all([api('/notes/'),api('/jozve/courses'),api('/auth/me')]);S.notes=n;S.courses=c;S.me=m;await jobs(1);if(S.course&&!quiet)S.items=null;render()}catch(e){if(e)toast(e.message)}}
+async function jobs(q){try{const{job}=await api('/jozve/jobs/running'),was=S.job;S.job=job;if(was&&!job){toast('✅ جزوه‌ی کامل آماده شد');load(1)}if(!q)render()}catch(e){}}
+function render(){const m=S.me,tabs=[['files','📂','فایل‌ها'],['book','📒','جزوه‌ها']];
+ const job=S.job?`<div class="card job"><b>⏳ در حال ساخت جزوه‌ی کامل</b><div class="s">بخش ${S.job.done_parts} از ${S.job.total_parts}</div><div class="bar"><i style="width:${Math.round(S.job.done_parts/Math.max(1,S.job.total_parts)*100)}%"></i></div></div>`:'';
+ $('#app').innerHTML=`<div class="wrap"><div class="hero"><h1>سلام 👋 امروز چی بخونیم؟</h1><p>فایل‌ها و جزوه‌هات با ربات هماهنگن</p><div class="chips">${m?`<span class="chip">⚡ امروز: ${m.daily_remaining} از ${m.daily_total}</span><span class="chip">💎 اعتبار: ${m.credits}</span>${m.premium_until?'<span class="chip">👑 پریمیوم</span>':''}`:'<span class="chip">…</span>'}</div></div>${job}<div id="v"></div></div>
+ <div class="nav">${tabs.map(t=>`<button class="${S.tab===t[0]?'on':''}" onclick="S.tab='${t[0]}';S.course=null;render()"><b>${t[1]}</b>${t[2]}</button>`).join('')}</div>`;
+ S.tab==='files'?vFiles():S.course?vCourse():vBook()}
+function vFiles(){const n=S.notes;$('#v').innerHTML=`<div class="drop" id="dz"><div style="font-size:34px">☁️</div><b style="color:var(--tx)">فایل رو اینجا بنداز یا انتخاب کن</b><div class="s">صوت، PDF، پاورپوینت، عکس — تا ۳۰ مگابایت (صوت تا ۲۵)</div><div id="up"></div><p><button class="btn" onclick="$('#fi').click()">انتخاب فایل</button></p><input id="fi" type="file" hidden></div>
+<h2>فایل‌های من</h2>${!n?'<div class="sk"></div><div class="sk"></div>':!n.length?'<div class="empty"><b>🗂</b>هنوز فایلی نداری</div>':'<div class="card">'+n.map((x,i)=>`<button class="row" onclick="openFile(${i})"><span class="ic">${ico(x.original_filename)}</span><span class="grow"><div class="t">${esc(x.original_filename)}</div><div class="s">${sz(x.size_bytes)} · ${ago(x.created_at)}</div></span><span class="badge ${x.processing_status==='done'?'':x.processing_status==='failed'?'bad':'mid'}">${{done:'آماده',failed:'ناموفق',not_supported:'بدون متن'}[x.processing_status]||x.processing_status}</span></button>`).join('')+'</div>'}`;
+ const dz=$('#dz');['dragover','dragenter'].forEach(e=>dz.addEventListener(e,x=>{x.preventDefault();dz.classList.add('on')}));['dragleave','drop'].forEach(e=>dz.addEventListener(e,x=>{x.preventDefault();dz.classList.remove('on')}));
+ dz.addEventListener('drop',x=>up(x.dataTransfer.files[0]));$('#fi').onchange=e=>up(e.target.files[0])}
+function up(f){if(!f)return;const au=/\.(ogg|oga|mp3|m4a|wav|aac|opus|flac)$/i.test(f.name);
+ if(f.size>30e6||(au&&f.size>25e6))return toast('حجم فایل بیشتر از حد مجازه');
+ const fd=new FormData(),x=new XMLHttpRequest(),b=$('#up');fd.append('file',f);b.innerHTML='<div class="bar"><i id="pb"></i></div><div class="s" id="pt">در حال آپلود…</div>';
+ x.open('POST','/notes/upload');x.setRequestHeader('Authorization','Bearer '+T());
+ x.upload.onprogress=e=>{const p=Math.round(e.loaded/e.total*100);$('#pb').style.width=p+'%';if(p>=100)$('#pt').textContent=au?'در حال تبدیل صدا به متن… (چند دقیقه طول می‌کشه)':'در حال پردازش…'};
+ x.onload=async()=>{if(x.status===200){toast('✅ فایل آماده شد');await load();openFile(0)}else{let d='آپلود ناموفق بود';try{d=JSON.parse(x.responseText).detail||d}catch(e){}toast(d);render()}};x.onerror=()=>{toast('اتصال قطع شد');render()};x.send(fd)}
+async function openFile(i){const n=S.notes[i],s=sheet(`<h2 style="margin-top:0">${ico(n.original_filename)} ${esc(n.original_filename)}</h2><div id="fb"><div class="sk"></div></div>`);
+ try{const d=await api('/notes/'+n.id),t=d.extracted_text||'',ok=t.trim().length>0;
+  s.querySelector('#fb').innerHTML=ok?`<div class="s">${t.length.toLocaleString('fa')} حرف متن</div><p style="max-height:140px;overflow:auto;background:var(--bg);padding:12px;border-radius:14px;font-size:13.5px">${esc(t.slice(0,900))}${t.length>900?'…':''}</p><div class="flex"><button class="btn" id="b1">📝 خلاصه</button><button class="btn ghost" id="b2">📖 جزوه‌ی کامل</button></div><div id="out"></div>`:'<div class="empty"><b>😕</b>از این فایل متنی استخراج نشده</div>';
+  if(ok){s.querySelector('#b1').onclick=()=>summ(n,s);s.querySelector('#b2').onclick=()=>{s.close();fullFlow(n)}}}catch(e){if(e)toast(e.message)}}
+async function summ(n,s){const o=s.querySelector('#out');o.innerHTML='<div class="sk" style="margin-top:12px"></div>';
+ try{const r=await api('/ai/notes/'+n.id+'/summarize',{method:'POST'});load(1);const warn=r.text_chars>r.used_chars?`<div class="ex" style="background:rgba(240,68,56,.1);border-color:var(--er);padding:9px 12px;border-radius:10px;margin-top:12px">⚠️ این خلاصه فقط از ${Math.round(r.used_chars/r.text_chars*100)}٪ ابتدای متن ساخته شده. برای پوشش کامل «جزوه‌ی کامل» رو بزن.</div>`:'';
+  o.innerHTML=warn+`<div class="read" style="margin-top:8px">${md(r.summary)}</div><button class="btn sm" id="sv">💾 ذخیره در جزوه</button>`;o.querySelector('#sv').onclick=()=>pick(c=>api('/jozve/items',{method:'POST',json:{course_id:c,content:r.summary,note_id:n.id}}).then(x=>{toast('ذخیره شد — شماره '+x.number);load(1)}))}catch(e){o.innerHTML='';if(e)toast(e.message)}}
+function pick(cb){const s=sheet(`<h2 style="margin-top:0">تو کدوم درس؟</h2><div class="card">${(S.courses||[]).map(c=>`<button class="row" data-id="${c.id}"><span class="ic">📘</span><span class="grow t">${esc(c.name)}</span>${c.is_active?'⭐':''}</button>`).join('')}</div><h2>یا درس جدید</h2><div class="flex"><input type="text" id="nc" placeholder="اسم درس" style="flex:1"><button class="btn" id="ncb">ساخت</button></div>`);
+ s.querySelectorAll('[data-id]').forEach(b=>b.onclick=()=>{s.close();cb(b.dataset.id)});
+ s.querySelector('#ncb').onclick=async()=>{const v=s.querySelector('#nc').value.trim();if(!v)return;try{const c=await api('/jozve/courses',{method:'POST',json:{name:v}});s.close();await load(1);cb(c.id)}catch(e){if(e)toast(e.message)}}}
+async function fullFlow(n){try{const e=await api('/jozve/full-notes/estimate/'+n.id);
+ const s=sheet(`<h2 style="margin-top:0">📖 جزوه‌ی کامل</h2><p class="s">برخلاف خلاصه، هیچ مطلبی حذف نمی‌شه؛ فقط حرف‌های اضافه برداشته و متن مرتب می‌شه.</p><div class="card" style="padding:14px"><div>📏 حدود ${Math.round(e.used_chars/1000)} هزار حرف ← ${e.parts} بخش</div><div>💎 هزینه: <b>${e.cost}</b> اعتبار</div><div>⏱ حدود ${e.minutes} دقیقه</div></div><p><button class="btn" id="go">انتخاب درس و شروع</button></p>`);
+ s.querySelector('#go').onclick=()=>{s.close();pick(async c=>{try{await api('/jozve/full-notes',{method:'POST',json:{note_id:n.id,course_id:c}});toast('شروع شد؛ پیشرفت بالای صفحه نشون داده می‌شه');jobs()}catch(e){if(e)toast(e.message)}})}}catch(e){if(e)toast(e.message)}}
+function vBook(){const c=S.courses;$('#v').innerHTML=`<h2>درس‌ها <button class="btn sm" onclick="pick0()">+ درس جدید</button></h2>${!c?'<div class="sk"></div>':!c.length?'<div class="empty"><b>📒</b>هنوز درسی نساختی؛ یه خلاصه رو تو جزوه ذخیره کن</div>':'<div class="grid">'+c.map((x,i)=>`<button class="course" style="background:linear-gradient(135deg,${COL[i%6]})" onclick="openCourse(${i})"><em>${x.is_active?'⭐':''}</em><b>${esc(x.name)}</b><span>${x.items_count} جزوه</span></button>`).join('')+'</div>'}`}
+function pick0(){const s=sheet(`<h2 style="margin-top:0">درس جدید</h2><input type="text" id="nc" placeholder="اسم درس"><p><button class="btn" id="ncb">ساخت</button></p>`);s.querySelector('#ncb').onclick=async()=>{const v=s.querySelector('#nc').value.trim();if(!v)return;try{await api('/jozve/courses',{method:'POST',json:{name:v}});s.close();load()}catch(e){if(e)toast(e.message)}}}
+async function openCourse(i){S.course=S.courses[i];S.items=null;render();try{S.items=(await api('/jozve/courses/'+S.course.id+'/items')).items;render()}catch(e){if(e)toast(e.message)}}
+function vCourse(){const c=S.course,it=S.items;$('#v').innerHTML=`<h2><span>📘 ${esc(c.name)}</span><button class="btn ghost sm" onclick="S.course=null;render()">← برگشت</button></h2><div class="flex" style="margin-bottom:12px"><button class="btn sm ${c.is_active?'':'ghost'}" onclick="act()">${c.is_active?'⭐ درس فعال':'⭐ فعال کن'}</button><button class="btn ghost sm" onclick="dl('/jozve/courses/${c.id}/export?format=pdf','jozve.pdf')">📄 PDF</button><button class="btn ghost sm" onclick="dl('/jozve/courses/${c.id}/export?format=docx','jozve.docx')">📝 DOCX</button><button class="btn red sm" onclick="delC()">🗑</button></div>${!it?'<div class="sk"></div>':!it.length?'<div class="empty"><b>✍️</b>این درس هنوز جزوه‌ای نداره</div>':'<div class="card">'+it.map((x,k)=>`<div class="row"><button class="grow" style="text-align:right" onclick="read(${k})"><div class="t">${x.kind==='full'?'📖 ':''}${x.number}. ${esc(x.title||'بدون عنوان')}</div></button><button class="btn ghost sm" onclick="mv(${k},-1)">↑</button><button class="btn ghost sm" onclick="mv(${k},1)">↓</button><button class="btn red sm" onclick="delI(${k})">✕</button></div>`).join('')+'</div>'}`}
+async function act(){const c=S.course;try{c.is_active?await api('/jozve/active',{method:'DELETE'}):await api('/jozve/courses/'+c.id+'/activate',{method:'POST'});c.is_active=!c.is_active;toast(c.is_active?'از این به بعد ویس‌های ربات خودکار اینجا ذخیره می‌شن':'درس فعال خاموش شد');load(1)}catch(e){if(e)toast(e.message)}}
+async function delC(){if(!confirm('این درس با همه‌ی جزوه‌هاش حذف بشه؟'))return;try{await api('/jozve/courses/'+S.course.id,{method:'DELETE'});S.course=null;load()}catch(e){if(e)toast(e.message)}}
+async function delI(k){if(!confirm('این مورد حذف بشه؟'))return;try{await api('/jozve/items/'+S.items[k].id,{method:'DELETE'});S.items.splice(k,1);render();load(1)}catch(e){if(e)toast(e.message)}}
+async function mv(k,d){const a=S.items[k],b=S.items[k+d];if(!b)return;try{let na=b.number,nb=a.number;if(na===nb)na+=d;await Promise.all([api('/jozve/items/'+a.id,{method:'PATCH',json:{number:na}}),api('/jozve/items/'+b.id,{method:'PATCH',json:{number:nb}})]);S.items=(await api('/jozve/courses/'+S.course.id+'/items')).items;render()}catch(e){if(e)toast(e.message)}}
+function read(k){const x=S.items[k];let fs=16;const s=sheet(`<div class="flex" style="justify-content:space-between;position:sticky;top:-20px;background:var(--card);padding:6px 0;z-index:2"><button class="btn ghost sm" id="cl">✕ بستن</button><span class="flex"><button class="btn ghost sm" id="fm">A−</button><button class="btn ghost sm" id="fp">A+</button><button class="btn ghost sm" id="p1">📄</button><button class="btn ghost sm" id="p2">📝</button></span></div><h2 style="font-size:20px">${x.kind==='full'?'📖 ':''}${x.number}. ${esc(x.title||'')}</h2><div class="read" id="rd" style="font-size:${fs}px">${md(x.content)}</div>`,1);
+ s.querySelector('#cl').onclick=s.close;const f=d=>{fs=Math.min(26,Math.max(12,fs+d));s.querySelector('#rd').style.fontSize=fs+'px'};s.querySelector('#fm').onclick=()=>f(-1);s.querySelector('#fp').onclick=()=>f(1);
+ s.querySelector('#p1').onclick=()=>dl('/jozve/items/'+x.id+'/export?format=pdf','jozve.pdf');s.querySelector('#p2').onclick=()=>dl('/jozve/items/'+x.id+'/export?format=docx','jozve.docx')}
+boot();
+</script>
+</body>
+</html>

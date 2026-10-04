@@ -2,7 +2,7 @@ import asyncio
 import os
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
-from app.routers import admin, ai, auth, chat, flashcards, jozve, notes, redeem, reminders, webapp
+from app.routers import admin, ai, auth, chat, flashcards, jozve, notes, panel, redeem, reminders, webapp
 
 _background_tasks: list = []  # نگه‌داشتن رفرنس تسک‌ها تا garbage collect نشن
 
@@ -35,6 +35,7 @@ app.include_router(admin.router)
 app.include_router(redeem.router)
 app.include_router(flashcards.router)
 app.include_router(jozve.router)
+app.include_router(panel.router)
 app.include_router(webapp.router)
 
 @app.get("/health")

@@ -159,14 +159,17 @@ BTN_REVIEW = "🔁 مرور فلش‌کارت‌ها"
 BTN_OPEN_APP = "🚀 باز کردن اپ"
 BTN_INVITE = "🎁 دعوت از دوستان"
 BTN_JOZVE = "📒 جزوه‌هام"
+BTN_WEB = "🌐 وب‌اپ"
+# آدرس عمومی سرویس (برای ساخت لینک وب‌اپ)؛ تو Render می‌تونی با WEB_APP_BASE_URL عوضش کنی
+WEB_APP_BASE_URL = os.environ.get("WEB_APP_BASE_URL", "https://unimate-ai-11zr.onrender.com")
 
 MAIN_KEYBOARD = ReplyKeyboardMarkup(
-    [[BTN_SEARCH], [BTN_MY_NOTES, BTN_JOZVE], [BTN_HELP, BTN_CREDITS], [BTN_REDEEM, BTN_REVIEW], [BTN_INVITE]],
+    [[BTN_SEARCH], [BTN_MY_NOTES, BTN_JOZVE], [BTN_HELP, BTN_CREDITS], [BTN_REDEEM, BTN_REVIEW], [BTN_INVITE, BTN_WEB]],
     resize_keyboard=True,
 )
 
 # متن دکمه‌های منوی اصلی؛ اگه کاربر وسط یه مرحله‌ی «منتظر متن» یکی‌شون رو بزنه، اون مرحله لغو می‌شه
-_MAIN_BUTTON_TEXTS = {BTN_SEARCH, BTN_MY_NOTES, BTN_JOZVE, BTN_HELP, BTN_CREDITS, BTN_REDEEM, BTN_REVIEW, BTN_INVITE}
+_MAIN_BUTTON_TEXTS = {BTN_SEARCH, BTN_MY_NOTES, BTN_JOZVE, BTN_WEB, BTN_HELP, BTN_CREDITS, BTN_REDEEM, BTN_REVIEW, BTN_INVITE}
 
 MIN_SLIDES = 3
 MAX_SLIDES = 20
@@ -1722,6 +1725,20 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             await _send_slides(user_id, update.message, note_id, count)
         except httpx.HTTPStatusError as e:
             await update.message.reply_text(_error_message(e))
+        return
+
+    if text == BTN_WEB:
+        try:
+            code = (await api_request(user_id, "POST", "/panel/link")).json()["code"]
+        except httpx.HTTPStatusError as e:
+            await update.message.reply_text(_error_message(e))
+            return
+        url = f"{WEB_APP_BASE_URL.rstrip('/')}/panel?code={code}"
+        await update.message.reply_text(
+            "🌐 وب‌اپ یونیمیت — فایل‌ها و جزوه‌هات با ربات هماهنگن (هر فایلی که اینجا بفرستی اون‌جا هم هست و برعکس).\n"
+            "لینک ۱۰ دقیقه معتبره و فقط یه‌بار کار می‌کنه؛ بعدش خودش وارد می‌مونی.",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🌐 باز کردن وب‌اپ", url=url)]]),
+        )
         return
 
     if text == BTN_JOZVE:

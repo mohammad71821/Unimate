@@ -520,6 +520,15 @@ async def start_full_notes(
     }
 
 
+@router.get("/jobs/running")
+async def running_job(current_user: User = Depends(get_current_user)):
+    """کار جزوه‌ی کاملِ در حال اجرا (چه از ربات شروع شده چه از وب‌اپ) تا وب‌اپ بتونه پیگیری‌ش کنه."""
+    job = _running_job_of(str(current_user.id))
+    if not job:
+        return {"job": None}
+    return {"job": {k: job[k] for k in ("id", "done_parts", "total_parts", "cost")}}
+
+
 @router.get("/full-notes/{job_id}")
 async def full_notes_status(job_id: str, current_user: User = Depends(get_current_user)):
     job = _JOBS.get(job_id)
