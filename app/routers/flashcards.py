@@ -198,11 +198,18 @@ async def get_nudge_targets(payload: dict, db: AsyncSession = Depends(get_db)):
     if not owner_to_count:
         return {"targets": []}
 
+    platform = payload.get("platform", "telegram")
+    bale_prefix = "tg-bale-"
+    is_bale_user = User.email.like(bale_prefix + "%@telegram.local")
+    platform_filter = is_bale_user if platform == "bale" else ~is_bale_user
+    prefix = bale_prefix if platform == "bale" else "tg-"
+
     users = await db.scalars(
         select(User).where(
             User.id.in_(owner_to_count.keys()),
             User.is_active.is_(True),
             User.email.like("tg-%@telegram.local"),
+            platform_filter,
         )
     )
 
@@ -210,7 +217,7 @@ async def get_nudge_targets(payload: dict, db: AsyncSession = Depends(get_db)):
     for user in users.all():
         if user.last_flashcard_nudge_date == today:
             continue
-        chat_id = user.email[len("tg-") : -len("@telegram.local")]
+        chat_id = user.email[len(prefix) : -len("@telegram.local")]
         targets.append({"chat_id": chat_id, "due_count": owner_to_count[user.id]})
         user.last_flashcard_nudge_date = today
 

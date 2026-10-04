@@ -78,8 +78,13 @@ async def fetch_and_mark_due_reminders(
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid bot secret")
 
     now = datetime.now()
+    # کاربرهای بله ایمیل tg-bale-<id>@telegram.local دارن؛ هر ربات فقط یادآور کاربرهای پلتفرم خودش رو برمی‌داره
+    is_bale_user = User.email.like("tg-bale-%")
+    platform_filter = is_bale_user if payload.platform == "bale" else ~is_bale_user
     result = await db.scalars(
-        select(Reminder).where(Reminder.sent.is_(False), Reminder.remind_at <= now)
+        select(Reminder)
+        .join(User, User.id == Reminder.owner_id)
+        .where(Reminder.sent.is_(False), Reminder.remind_at <= now, platform_filter)
     )
     due = result.all()
 

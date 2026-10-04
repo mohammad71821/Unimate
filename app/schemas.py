@@ -36,6 +36,7 @@ class ReminderCreate(BaseModel):
 
 class DueReminderCheck(BaseModel):
     bot_secret: str
+    platform: str = "telegram"  # "telegram" یا "bale"
 
 
 class StudyPlanRequest(BaseModel):
