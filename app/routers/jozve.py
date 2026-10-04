@@ -1,3 +1,6 @@
+import asyncio
+import logging
+import time
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Response
@@ -6,10 +9,13 @@ from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app import fullnotes
 from app.database import get_db
-from app.deps import get_current_user
+from app.deps import consume_credit, get_current_user
 from app.jozve_export import build_jozve_docx_bytes, build_jozve_pdf_bytes
 from app.models import Course, JozveItem, Note, User
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/jozve", tags=["jozve"])
 
@@ -75,6 +81,7 @@ def _item_out(item: JozveItem, with_content: bool = True) -> dict:
         "course_id": str(item.course_id),
         "number": item.number,
         "title": item.title,
+        "kind": item.kind,
         "created_at": item.created_at.isoformat() if item.created_at else None,
     }
     if with_content:
@@ -337,4 +344,224 @@ async def export_course(
         content=data,
         media_type=media_type,
         headers={"Content-Disposition": f'attachment; filename="jozve.{fmt}"'},
+    )
+
+
+# ---------- جزوه‌ی کامل (ساخته‌شده از کل متن، بدون خلاصه‌سازی) ----------
+# کارها داخل حافظه‌ی همین پروسه نگه داشته می‌شن. اگه سرور وسط کار ری‌استارت بشه، کار نیمه‌کاره
+# از بین می‌ره و چون اعتبار فقط موقع شروع کم شده، تو همون لحظه برنمی‌گرده؛ بات پیام «کار پیدا نشد» می‌ده.
+_JOBS: dict[str, dict] = {}
+_JOB_TASKS: set = set()
+JOB_TTL_SECONDS = 2 * 60 * 60
+
+
+class FullNotesCreate(BaseModel):
+    note_id: uuid.UUID
+    course_id: uuid.UUID
+
+
+async def _owned_note_with_text(note_id: uuid.UUID, user: User, db: AsyncSession) -> Note:
+    note = await db.scalar(select(Note).where(Note.id == note_id))
+    if not note or note.owner_id != user.id:
+        raise HTTPException(status_code=404, detail="فایل پیدا نشد.")
+    if not (note.extracted_text or "").strip():
+        raise HTTPException(
+            status_code=400,
+            detail="این فایل هنوز متنی نداره (پردازشش تموم نشده یا ناموفق بوده).",
+        )
+    return note
+
+
+def _purge_old_jobs() -> None:
+    now = time.time()
+    for job_id in [j for j, v in _JOBS.items() if now - v["created"] > JOB_TTL_SECONDS]:
+        _JOBS.pop(job_id, None)
+
+
+def _running_job_of(user_id: str) -> dict | None:
+    return next((j for j in _JOBS.values() if j["user_id"] == user_id and j["status"] == "running"), None)
+
+
+async def _refund_job_credits(job: dict) -> None:
+    """اعتباری که موقع شروع کم شده بود رو (همون مقدار و از همون محل) برمی‌گردونه."""
+    permanent, daily = job["spent"]
+    if not permanent and not daily:
+        return
+    agen = get_db()
+    db = await agen.__anext__()
+    try:
+        user = await db.get(User, uuid.UUID(job["user_id"]))
+        if user is None:
+            return
+        user.credits += permanent
+        if daily and user.daily_credits_date == job["spent_date"]:
+            user.daily_credits_used = max(0, user.daily_credits_used - daily)
+        await db.commit()
+    except Exception:
+        logger.exception("Full-notes refund failed for job %s", job["id"])
+    finally:
+        await agen.aclose()
+
+
+async def _run_full_notes_job(job: dict, text: str) -> None:
+    try:
+        def on_progress(done: int, total: int) -> None:
+            job["done_parts"], job["total_parts"] = done, total
+
+        notes, failed, total = await fullnotes.build_full_notes(text, on_progress)
+        if not notes.strip():
+            raise RuntimeError("empty output")
+        if total and failed / total > fullnotes.MAX_FAILED_RATIO:
+            raise RuntimeError(f"too many failed parts: {failed}/{total}")
+
+        agen = get_db()
+        db = await agen.__anext__()
+        try:
+            course = await db.get(Course, uuid.UUID(job["course_id"]))
+            if course is None or str(course.owner_id) != job["user_id"]:
+                raise RuntimeError("course is gone")
+            number = await _next_number(course.id, db)
+            item = JozveItem(
+                owner_id=uuid.UUID(job["user_id"]),
+                course_id=course.id,
+                note_id=uuid.UUID(job["note_id"]),
+                number=number,
+                title=_auto_title(notes),
+                content=notes,
+                kind="full",
+            )
+            db.add(item)
+            await db.commit()
+            await db.refresh(item)
+            job.update(
+                status="done",
+                item_id=str(item.id),
+                course_id=str(course.id),
+                course_name=course.name,
+                number=number,
+                chars=len(notes),
+                failed_parts=failed,
+            )
+        finally:
+            await agen.aclose()
+    except Exception as e:
+        logger.exception("Full-notes job %s failed", job["id"])
+        await _refund_job_credits(job)
+        job.update(
+            status="failed",
+            error="ساخت جزوه‌ی کامل کامل نشد و اعتبارت برگشت داده شد. چند دقیقه‌ی دیگه دوباره امتحان کن."
+            if not isinstance(e, RuntimeError) or "course is gone" not in str(e)
+            else "درس مقصد حذف شده بود؛ اعتبارت برگشت داده شد.",
+        )
+
+
+@router.get("/full-notes/estimate/{note_id}")
+async def estimate_full_notes(
+    note_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    note = await _owned_note_with_text(note_id, current_user, db)
+    return fullnotes.plan(note.extracted_text)
+
+
+@router.post("/full-notes")
+async def start_full_notes(
+    payload: FullNotesCreate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    note = await _owned_note_with_text(payload.note_id, current_user, db)
+    course = await _owned_course(payload.course_id, current_user, db)
+
+    _purge_old_jobs()
+    user_id = str(current_user.id)
+    if _running_job_of(user_id):
+        raise HTTPException(
+            status_code=409,
+            detail="یه جزوه‌ی کامل دیگه‌ت هنوز در حال ساخته شدنه؛ صبر کن تموم بشه.",
+        )
+
+    text = note.extracted_text
+    plan = fullnotes.plan(text)
+
+    # اعتبار موقع شروع کم می‌شه (اگه کافی نباشه consume_credit خودش ۴۰۲ می‌ده و کاری شروع نمی‌شه)
+    before = (current_user.credits, current_user.daily_credits_used, current_user.daily_credits_date)
+    await consume_credit(current_user, db, amount=plan["cost"])
+    await db.commit()
+    after = (current_user.credits, current_user.daily_credits_used, current_user.daily_credits_date)
+    spent = fullnotes.credit_spent(before, after)
+
+    job = {
+        "id": uuid.uuid4().hex,
+        "user_id": user_id,
+        "note_id": str(note.id),
+        "course_id": str(course.id),
+        "status": "running",
+        "done_parts": 0,
+        "total_parts": plan["parts"],
+        "cost": plan["cost"],
+        "spent": spent,
+        "spent_date": after[2],
+        "created": time.time(),
+    }
+    _JOBS[job["id"]] = job
+    task = asyncio.create_task(_run_full_notes_job(job, text))
+    _JOB_TASKS.add(task)
+    task.add_done_callback(_JOB_TASKS.discard)
+
+    return {
+        "job_id": job["id"],
+        "parts": plan["parts"],
+        "cost": plan["cost"],
+        "minutes": plan["minutes"],
+        "truncated": plan["truncated"],
+        "course_name": course.name,
+    }
+
+
+@router.get("/full-notes/{job_id}")
+async def full_notes_status(job_id: str, current_user: User = Depends(get_current_user)):
+    job = _JOBS.get(job_id)
+    if not job or job["user_id"] != str(current_user.id):
+        raise HTTPException(
+            status_code=404,
+            detail="این کار پیدا نشد (احتمالاً سرور ری‌استارت شده). اگه جزوه تو درس نیست، دوباره بسازش.",
+        )
+    keys = (
+        "status", "done_parts", "total_parts", "cost", "error",
+        "item_id", "course_id", "course_name", "number", "chars", "failed_parts",
+    )
+    return {k: job.get(k) for k in keys}
+
+
+# ---------- خروجی یه خلاصه/جزوه‌ی تکی ----------
+@router.get("/items/{item_id}/export")
+async def export_item(
+    item_id: uuid.UUID,
+    format: str = "pdf",
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    fmt = format.lower()
+    if fmt not in ("pdf", "docx"):
+        raise HTTPException(status_code=400, detail="فرمت باید pdf یا docx باشه.")
+    item = await _owned_item(item_id, current_user, db)
+    course = await db.get(Course, item.course_id)
+    items = [{"number": item.number, "title": item.title, "content": item.content}]
+    name = course.name if course else "جزوه"
+
+    if fmt == "pdf":
+        data = build_jozve_pdf_bytes(name, items)
+        media_type = "application/pdf"
+    else:
+        try:
+            data = build_jozve_docx_bytes(name, items)
+        except RuntimeError:
+            raise HTTPException(status_code=501, detail="خروجی DOCX روی سرور فعال نیست (python-docx نصب نشده).")
+        media_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    return Response(
+        content=data,
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="jozve-item.{fmt}"'},
     )

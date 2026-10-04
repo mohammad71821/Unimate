@@ -172,7 +172,14 @@ async def summarize_note(
     provider = get_ai_provider()
     summary = await call_ai_safely(provider, prompt=note.extracted_text[:8000], system=SUMMARY_SYSTEM_PROMPT)
     await consume_credit(current_user, db)
-    return {"note_id": str(note.id), "summary": summary}
+    total_chars = len(note.extracted_text)
+    return {
+        "note_id": str(note.id),
+        "summary": summary,
+        # برای اینکه بات بتونه بگه خلاصه از چند درصدِ متن ساخته شده
+        "text_chars": total_chars,
+        "used_chars": min(total_chars, 8000),
+    }
 
 
 @router.post("/notes/{note_id}/flashcards")

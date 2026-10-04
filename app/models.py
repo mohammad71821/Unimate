@@ -163,4 +163,6 @@ class JozveItem(Base):
     number: Mapped[int] = mapped_column(default=1)
     title: Mapped[str | None] = mapped_column(String(300), nullable=True)
     content: Mapped[str] = mapped_column(Text)
+    # "summary" = خلاصه، "full" = جزوه‌ی کامل (ساخته‌شده از کل متن، بدون خلاصه‌سازی)
+    kind: Mapped[str] = mapped_column(String(20), default="summary", server_default="summary")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

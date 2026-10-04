@@ -78,6 +78,14 @@ _pending_item_number: dict[int, str] = {}
 # chat_id -> item_id ای که قراره به درس دیگه منتقل بشه
 _pending_item_move: dict[int, str] = {}
 
+# --- جزوه‌ی کامل ---
+# chat_id -> note_id ای که کاربر منتظر انتخاب درس برای ساخت جزوه‌ی کاملشه
+_pending_full_notes: dict[int, str] = {}
+# note_id -> {"chars", "used"}: خلاصه از چند حرفِ متن ساخته شد (برای هشدار «خلاصه کامل نیست»)
+_summary_meta: dict[str, dict] = {}
+# نگه‌داشتن رفرنس تسک‌های پیگیریِ جزوه‌ی کامل تا garbage collect نشن
+_follow_tasks: set = set()
+
 TELEGRAM_MAX_LEN = 4000
 
 # --- محدودیت تعداد درخواست، برای جلوگیری از سوءاستفاده/مصرف بی‌رویه سهمیه‌ی AI ---
@@ -111,7 +119,9 @@ def _skips_rate_limit(update: Update) -> bool:
     """منوی جزوه هیچ مصرف AI ای نداره، پس مشمول سقف تعداد درخواست نیست (به‌جز ساخت فایل خروجی)."""
     query = update.callback_query
     if query and query.data:
-        return query.data.startswith("jz") and not query.data.startswith("jzx:")
+        if query.data.startswith(("fnall:", "fnnew:", "fnx:")):  # فقط منوی انتخاب درس؛ ساخت کار (fnc:) محدود می‌مونه
+            return True
+        return query.data.startswith("jz") and not query.data.startswith(("jzx:", "jzxi:"))
     message = update.message
     if message and message.text:
         chat_id = update.effective_chat.id if update.effective_chat else None
@@ -249,6 +259,7 @@ def note_keyboard(note_id: str) -> InlineKeyboardMarkup:
             InlineKeyboardButton("🎞 اسلاید", callback_data=f"slides:{note_id}"),
         ],
         [
+            InlineKeyboardButton("📖 جزوه‌ی کامل", callback_data=f"fn:{note_id}"),
             InlineKeyboardButton("🔍 جستجو در همین فایل", callback_data=f"searchnote:{note_id}"),
         ],
     ]
@@ -284,7 +295,9 @@ HELP_TEXT = (
     "هر روز ساعت ۱۰ صبح اگه کارت معوقه داشته باشی خودم یادت می‌اندازم.\n\n"
     f"با «{BTN_JOZVE}» خلاصه‌هات رو بر اساس درس دسته‌بندی و شماره‌گذاری می‌کنی و هر وقت خواستی از هر درس "
     "یه جزوه‌ی مرتب (PDF یا DOCX) می‌گیری. زیر هر خلاصه دکمه‌ی «ذخیره در جزوه» هست. "
-    "با «⭐ درس فعال» ویس‌ها و فایل‌های صوتی کلاس خودکار خلاصه و تو همون درس ذخیره می‌شن.\n\n"
+    "با «⭐ درس فعال» ویس‌ها و فایل‌های صوتی کلاس خودکار خلاصه و تو همون درس ذخیره می‌شن.\n"
+    "خلاصه ممکنه بعضی مطالب رو حذف کنه؛ با «📖 جزوه‌ی کامل» از کل متن یه جزوه‌ی مرتب و بدون حذف مطلب می‌گیری "
+    "(هزینه‌ش به طول متن بستگی داره و قبل از شروع بهت نشون داده می‌شه).\n\n"
     "/studyplan روی یه فایل فعال، یه برنامه‌ی مطالعاتی روزانه می‌سازه.\n"
     "/remind هم یادآوری می‌سازه (مثلاً /remind 2h وقت مطالعه).\n"
     "/credits وضعیت پلن و اعتبار باقی‌مونده‌ت رو نشون می‌ده.\n"
@@ -390,7 +403,10 @@ async def _fetch_action_text(user_id: int, action: str, note_id: str) -> str:
 
     if action == "summary":
         resp = await api_request(user_id, "POST", f"/ai/notes/{note_id}/summarize")
-        return resp.json().get("summary", "") or "خلاصه‌ای ساخته نشد."
+        data = resp.json()
+        if data.get("text_chars"):
+            _summary_meta[note_id] = {"chars": data["text_chars"], "used": data.get("used_chars", data["text_chars"])}
+        return data.get("summary", "") or "خلاصه‌ای ساخته نشد."
 
     if action == "questions":
         resp = await api_request(user_id, "POST", f"/ai/notes/{note_id}/questions")
@@ -654,6 +670,10 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     if query.data.startswith("flashpdf:"):
         _, note_id = query.data.split(":", 1)
         await _handle_flashcards_pdf(query, user_id, note_id)
+        return
+
+    if query.data.startswith("fn"):
+        await _handle_full_notes_button(query, user_id)
         return
 
     if query.data.startswith("jz"):
@@ -969,13 +989,15 @@ async def cmd_search(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 
 # ===================== جزوه (دسته‌بندی خلاصه‌ها بر اساس درس) =====================
 JOZVE_PAGE_SIZE = 10
+FULL_NOTES_POLL_SECONDS = 6
+FULL_NOTES_MAX_WAIT_SECONDS = 30 * 60
 AUDIO_EXTS = (".ogg", ".oga", ".opus", ".mp3", ".m4a", ".wav", ".aac", ".flac", ".amr", ".wma")
 _FA_DIGITS = str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "01234567890123456789")
 
 
 def _jz_error(e: httpx.HTTPStatusError) -> str:
     """پیام‌های فارسیِ خودِ router جزوه (۴۰۰/۴۰۴) رو مستقیم نشون می‌ده؛ بقیه‌ی خطاها مثل قبل."""
-    if e.response.status_code in (400, 404):
+    if e.response.status_code in (400, 404, 409):
         try:
             detail = e.response.json().get("detail")
         except ValueError:
@@ -1017,11 +1039,27 @@ async def _offer_jozve_save(message, chat_id: int, note_id: str, text: str) -> N
     if not text or text.startswith("خلاصه‌ای ساخته نشد"):
         return
     _pending_jozve_summary[chat_id] = {"note_id": note_id, "text": text}
+    notice = _truncation_notice(note_id)
     await message.reply_text(
-        "می‌خوای این خلاصه تو جزوه‌ات (دسته‌بندی‌شده بر اساس درس) ذخیره بشه؟",
+        (notice + "\n\n" if notice else "") + "می‌خوای این خلاصه تو جزوه‌ات (دسته‌بندی‌شده بر اساس درس) ذخیره بشه؟",
         reply_markup=InlineKeyboardMarkup(
-            [[InlineKeyboardButton("💾 ذخیره در جزوه", callback_data=f"jzsave:{note_id}")]]
+            [
+                [InlineKeyboardButton("💾 ذخیره در جزوه", callback_data=f"jzsave:{note_id}")],
+                [InlineKeyboardButton("📖 جزوه‌ی کامل (بدون حذف مطلب)", callback_data=f"fn:{note_id}")],
+            ]
         ),
+    )
+
+
+def _truncation_notice(note_id: str) -> str:
+    """اگه خلاصه فقط از بخشی از متن ساخته شده باشه، به کاربر می‌گه."""
+    meta = _summary_meta.get(note_id)
+    if not meta or meta["chars"] <= meta["used"]:
+        return ""
+    percent = max(1, round(meta["used"] / meta["chars"] * 100))
+    return (
+        f"⚠️ این خلاصه فقط از حدود {percent}٪ ابتدای متن ساخته شده (متن حدود {meta['chars'] // 1000} هزار حرفه) "
+        "و بقیه‌ی مطلب توش نیست. برای پوشش کامل، «📖 جزوه‌ی کامل» رو بزن."
     )
 
 
@@ -1085,7 +1123,8 @@ async def _show_course(send, user_id: int, course_id: str) -> None:
         lines.append("⭐ درس فعال: فایل‌های صوتی جدید خودکار اینجا ذخیره می‌شن")
     lines.append("")
     for it in items[:40]:
-        lines.append(f"{it['number']}. {_jz_short(it.get('title') or 'بدون عنوان')}")
+        badge = "📖 " if it.get("kind") == "full" else ""
+        lines.append(f"{badge}{it['number']}. {_jz_short(it.get('title') or 'بدون عنوان')}")
     if len(items) > 40:
         lines.append(f"… و {len(items) - 40} خلاصه‌ی دیگه")
     rows = []
@@ -1115,7 +1154,7 @@ async def _show_manage(send, user_id: int, course_id: str, page: int) -> None:
     rows = [
         [
             InlineKeyboardButton(
-                f"{it['number']}. {_jz_short(it.get('title') or 'بدون عنوان', 35)}",
+                f"{'📖 ' if it.get('kind') == 'full' else ''}{it['number']}. {_jz_short(it.get('title') or 'بدون عنوان', 33)}",
                 callback_data=f"jzi:{it['id']}",
             )
         ]
@@ -1147,6 +1186,10 @@ async def _show_item(query, user_id: int, item_id: str) -> None:
                     InlineKeyboardButton("🔢 تغییر شماره", callback_data=f"jzn:{item_id}"),
                     InlineKeyboardButton("📂 انتقال به درس دیگه", callback_data=f"jzmv:{item_id}"),
                 ],
+                [
+                    InlineKeyboardButton("📄 PDF", callback_data=f"jzxi:pdf:{item_id}"),
+                    InlineKeyboardButton("📝 DOCX", callback_data=f"jzxi:docx:{item_id}"),
+                ],
                 [InlineKeyboardButton("🗑 حذف", callback_data=f"jzd:{item_id}")],
                 [InlineKeyboardButton("⬅️ برگشت", callback_data=f"jzm:{item['course_id']}:0")],
             ]
@@ -1169,6 +1212,191 @@ async def _export_course(query, user_id: int, fmt: str, course_id: str) -> None:
     try:
         with open(tmp_path, "rb") as f:
             await query.message.reply_document(f, filename=f"{safe}.{fmt}")
+    finally:
+        os.unlink(tmp_path)
+
+
+# ===================== جزوه‌ی کامل (ساخته‌شده از کل متن، بدون خلاصه‌سازی) =====================
+def _fn_error(e: httpx.HTTPStatusError) -> str:
+    if e.response.status_code in (400, 404, 409):
+        return _jz_error(e)
+    return _error_message(e)
+
+
+async def _fn_menu(query, user_id: int, chat_id: int, note_id: str) -> None:
+    """هزینه و زمان رو نشون می‌ده و می‌پرسه تو کدوم درس ذخیره بشه."""
+    est = (await api_request(user_id, "GET", f"/jozve/full-notes/estimate/{note_id}")).json()
+    courses = (await api_request(user_id, "GET", "/jozve/courses")).json()
+    _pending_full_notes[chat_id] = note_id
+
+    lines = [
+        "📖 جزوه‌ی کامل",
+        "برخلاف خلاصه، هیچ مطلبی حذف نمی‌شه؛ فقط حرف‌های اضافه و تکرار برداشته می‌شن و متن مرتب و تیتربندی می‌شه.",
+        "",
+        f"متن: حدود {max(1, est['used_chars'] // 1000)} هزار حرف ← {est['parts']} بخش",
+        f"هزینه: {est['cost']} اعتبار",
+        f"زمان تقریبی: حدود {est['minutes']} دقیقه (می‌تونی تو این مدت از ربات استفاده کنی)",
+    ]
+    if est.get("truncated"):
+        lines.append("⚠️ متن خیلی بلنده؛ فقط ۱۵۰ هزار حرف اولش پردازش می‌شه.")
+
+    active = next((c for c in courses if c.get("is_active")), None)
+    rows = []
+    if active:
+        lines.append(f"\nتو «{active['name']}» (درس فعال) ذخیره بشه؟")
+        rows.append([InlineKeyboardButton(f"✅ شروع — {_jz_short(active['name'], 25)}", callback_data=f"fnc:{active['id']}")])
+        rows.append([InlineKeyboardButton("📂 تو درس دیگه", callback_data="fnall:0")])
+    else:
+        lines.append("\nتو کدوم درس ذخیره بشه؟")
+        rows = _jz_courses_keyboard(courses, "fnc", "fnnew:0").inline_keyboard
+        rows = [list(r) for r in rows]
+    rows.append([InlineKeyboardButton("انصراف", callback_data="fnx:0")])
+    await query.message.reply_text("\n".join(lines), reply_markup=InlineKeyboardMarkup(rows))
+
+
+async def _start_full_notes(message, user_id: int, chat_id: int, course_id: str) -> None:
+    note_id = _pending_full_notes.pop(chat_id, None)
+    if not note_id:
+        await message.reply_text("این درخواست منقضی شده؛ دوباره «📖 جزوه‌ی کامل» رو بزن.")
+        return
+    try:
+        job = (
+            await api_request(
+                user_id, "POST", "/jozve/full-notes", json={"note_id": note_id, "course_id": course_id}
+            )
+        ).json()
+    except httpx.HTTPStatusError as e:
+        await message.reply_text(_fn_error(e))
+        return
+    task = asyncio.create_task(_follow_full_notes(message, user_id, job))
+    _follow_tasks.add(task)
+    task.add_done_callback(_follow_tasks.discard)
+
+
+async def _follow_full_notes(message, user_id: int, job: dict) -> None:
+    """پیشرفت کار رو پیگیری می‌کنه و وقتی تموم شد خبر می‌ده. هندلرهای بقیه‌ی کاربرها رو قفل نمی‌کنه."""
+    total = job["parts"]
+    progress_msg = None
+    try:
+        progress_msg = await message.reply_text(
+            f"⏳ ساخت جزوه‌ی کامل شروع شد ({total} بخش، هزینه {job['cost']} اعتبار، "
+            f"حدود {job['minutes']} دقیقه).\nوقتی آماده شد خبرت می‌کنم."
+        )
+    except Exception:
+        logger.exception("Full-notes start message failed")
+
+    started = time.time()
+    last_shown = -1
+    last_edit = 0.0
+    errors = 0
+    while True:
+        await asyncio.sleep(FULL_NOTES_POLL_SECONDS)
+        if time.time() - started > FULL_NOTES_MAX_WAIT_SECONDS:
+            await message.reply_text(
+                "ساخت جزوه‌ی کامل از حد انتظار طولانی‌تر شد. چند دقیقه‌ی دیگه «📒 جزوه‌هام» رو چک کن؛ "
+                "اگه نبود، دوباره امتحان کن."
+            )
+            return
+        try:
+            st = (await api_request(user_id, "GET", f"/jozve/full-notes/{job['job_id']}", timeout=30)).json()
+        except httpx.HTTPStatusError as e:
+            await message.reply_text(_fn_error(e))
+            return
+        except Exception:
+            errors += 1
+            if errors >= 10:
+                await message.reply_text("ارتباط با سرور قطع شد. چند دقیقه‌ی دیگه «📒 جزوه‌هام» رو چک کن.")
+                return
+            continue
+        errors = 0
+
+        if st["status"] == "running":
+            done = st.get("done_parts") or 0
+            if progress_msg and done != last_shown and time.time() - last_edit >= 10:
+                try:
+                    await progress_msg.edit_text(f"⏳ جزوه‌ی کامل در حال ساخت: بخش {done} از {st.get('total_parts') or total}...")
+                    last_shown, last_edit = done, time.time()
+                except Exception:
+                    pass
+            continue
+
+        if st["status"] == "done":
+            text = (
+                f"✅ جزوه‌ی کامل آماده شد و تو «{st['course_name']}» ذخیره شد — شماره {st['number']}\n"
+                f"{total} بخش، حدود {max(1, (st.get('chars') or 0) // 1000)} هزار حرف"
+            )
+            if st.get("failed_parts"):
+                text += (
+                    f"\n⚠️ {st['failed_parts']} بخش پردازش نشد و به‌صورت متن خام (با علامت ⚠️) تو جزوه اومده؛ "
+                    "هیچ مطلبی از دست نرفته."
+                )
+            await message.reply_text(
+                text,
+                reply_markup=InlineKeyboardMarkup(
+                    [
+                        [
+                            InlineKeyboardButton("📄 PDF", callback_data=f"jzxi:pdf:{st['item_id']}"),
+                            InlineKeyboardButton("📝 DOCX", callback_data=f"jzxi:docx:{st['item_id']}"),
+                        ],
+                        [InlineKeyboardButton("👁 مشاهده تو چت", callback_data=f"jzi:{st['item_id']}")],
+                        [InlineKeyboardButton("📘 باز کردن درس", callback_data=f"jzo:{st['course_id']}")],
+                    ]
+                ),
+            )
+            return
+
+        await message.reply_text("❌ " + (st.get("error") or "ساخت جزوه‌ی کامل ناموفق بود."))
+        return
+
+
+async def _handle_full_notes_button(query, user_id: int) -> None:
+    chat_id = query.message.chat_id
+    action, _, rest = query.data.partition(":")
+    try:
+        if action == "fn":
+            await _fn_menu(query, user_id, chat_id, rest)
+
+        elif action == "fnall":
+            courses = (await api_request(user_id, "GET", "/jozve/courses")).json()
+            await query.message.reply_text(
+                "تو کدوم درس ذخیره بشه؟",
+                reply_markup=_jz_courses_keyboard(courses, "fnc", "fnnew:0"),
+            )
+
+        elif action == "fnc":
+            await _start_full_notes(query.message, user_id, chat_id, rest)
+
+        elif action == "fnnew":
+            if chat_id not in _pending_full_notes:
+                await query.message.reply_text("این درخواست منقضی شده؛ دوباره «📖 جزوه‌ی کامل» رو بزن.")
+                return
+            _pending_course_name[chat_id] = "full"
+            await query.message.reply_text("اسم درس رو بفرست (یا بنویس «لغو»):")
+
+        elif action == "fnx":
+            _pending_full_notes.pop(chat_id, None)
+            await query.message.reply_text("لغو شد.")
+
+    except httpx.HTTPStatusError as e:
+        await query.message.reply_text(_fn_error(e))
+    except Exception:
+        logger.exception("Full-notes button failed: %s", query.data)
+        await query.message.reply_text("یه خطای غیرمنتظره پیش اومد.")
+
+
+async def _export_item(query, user_id: int, fmt: str, item_id: str) -> None:
+    if fmt not in ("pdf", "docx"):
+        return
+    await query.message.reply_text("در حال ساخت فایل...")
+    resp = await api_request(
+        user_id, "GET", f"/jozve/items/{item_id}/export", params={"format": fmt}, timeout=120
+    )
+    with tempfile.NamedTemporaryFile(delete=False, suffix=f".{fmt}") as tmp:
+        tmp.write(resp.content)
+        tmp_path = tmp.name
+    try:
+        with open(tmp_path, "rb") as f:
+            await query.message.reply_document(f, filename=f"jozve.{fmt}")
     finally:
         os.unlink(tmp_path)
 
@@ -1215,14 +1443,16 @@ async def _auto_save_to_active_course(message, user_id: int, note_id: str, filen
         logger.exception("Auto jozve save failed")
         await message.reply_text("ذخیره‌ی خودکار انجام نشد؛ می‌تونی با «💾 ذخیره در جزوه» دستی ذخیره‌اش کنی.")
         return
+    notice = _truncation_notice(note_id)
     await message.reply_text(
-        f"✅ تو «{data['course_name']}» ذخیره شد — شماره {data['number']}",
+        f"✅ تو «{data['course_name']}» ذخیره شد — شماره {data['number']}" + ("\n\n" + notice if notice else ""),
         reply_markup=InlineKeyboardMarkup(
             [
                 [
                     InlineKeyboardButton("↩️ لغو ذخیره", callback_data=f"jzundo:{data['id']}"),
                     InlineKeyboardButton("⏹ خاموش کردن", callback_data="jzoff:0"),
-                ]
+                ],
+                [InlineKeyboardButton("📖 ساخت جزوه‌ی کامل از همین فایل", callback_data=f"fn:{note_id}")],
             ]
         ),
     )
@@ -1365,6 +1595,10 @@ async def _handle_jozve_button(query, user_id: int) -> None:
             await api_request(user_id, "DELETE", f"/jozve/items/{rest}")
             await query.message.reply_text("↩️ از جزوه برداشته شد (خودِ فایل و نوتت سر جاشه).")
 
+        elif action == "jzxi":
+            fmt, _, item_id = rest.partition(":")
+            await _export_item(query, user_id, fmt, item_id)
+
         elif action == "jzx":
             fmt, _, course_id = rest.partition(":")
             await _export_course(query, user_id, fmt, course_id)
@@ -1387,6 +1621,9 @@ async def _handle_new_course_name(update: Update, user_id: int, chat_id: int, te
         return
     try:
         course = (await api_request(user_id, "POST", "/jozve/courses", json={"name": name})).json()
+        if mode == "full":
+            await _start_full_notes(update.message, user_id, chat_id, course["id"])
+            return
         if mode == "save":
             data = await _save_summary_to_course(user_id, chat_id, course["id"])
             if data:
