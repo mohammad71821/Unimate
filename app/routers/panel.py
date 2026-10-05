@@ -40,6 +40,18 @@ async def font(name: str):
     return FileResponse(_FONTS / name, media_type="font/ttf", headers={"Cache-Control": "public, max-age=604800"})
 
 
+@router.get("/me")
+async def panel_me(current_user: User = Depends(get_current_user)):
+    """پلتفرم و chat_id کاربر (برای یادآورها). کاربرهای ربات: ایمیل tg-<id>@telegram.local یا tg-bale-<id>@..."""
+    email = current_user.email
+    platform, chat_id = None, None
+    if email.startswith("tg-") and email.endswith("@telegram.local"):
+        core = email[len("tg-") : -len("@telegram.local")]
+        platform = "bale" if core.startswith("bale-") else "telegram"
+        chat_id = core[len("bale-"):] if platform == "bale" else core
+    return {"platform": platform, "chat_id": chat_id}
+
+
 @router.post("/link")
 async def create_link_code(current_user: User = Depends(get_current_user)):
     """ربات (با توکنِ خودِ کاربر) یه کد یک‌بارمصرف می‌گیره و تو لینک وب‌اپ می‌ذاره."""

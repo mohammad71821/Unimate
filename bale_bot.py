@@ -1735,7 +1735,8 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             return
         url = f"{WEB_APP_BASE_URL.rstrip('/')}/panel?code={code}"
         await update.message.reply_text(
-            "🌐 وب‌اپ یونیمیت — فایل‌ها و جزوه‌هات با ربات هماهنگن (هر فایلی که اینجا بفرستی اون‌جا هم هست و برعکس).\n"
+            "🌐 وب‌اپ یونیمیت — فایل‌ها و جزوه‌هات با ربات هماهنگن (هر فایلی که اینجا بفرستی اون‌جا هم هست و برعکس).\n\n"
+            "⚠️ وب‌اپ بدون VPN باز نمی‌شه؛ قبل از زدن دکمه، VPN رو روشن کن.\n"
             "لینک ۱۰ دقیقه معتبره و فقط یه‌بار کار می‌کنه؛ بعدش خودش وارد می‌مونی.",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🌐 باز کردن وب‌اپ", url=url)]]),
         )
