@@ -326,7 +326,7 @@ async def export_course(
         .where(JozveItem.course_id == course.id)
         .order_by(JozveItem.number, JozveItem.created_at)
     )
-    items = [{"number": i.number, "title": i.title, "content": i.content} for i in result.all()]
+    items = [{"number": i.number, "title": i.title, "content": i.content, "kind": i.kind} for i in result.all()]
     if not items:
         raise HTTPException(status_code=400, detail="این درس هنوز هیچ خلاصه‌ای نداره.")
 
@@ -462,7 +462,7 @@ async def estimate_full_notes(
     db: AsyncSession = Depends(get_db),
 ):
     note = await _owned_note_with_text(note_id, current_user, db)
-    return fullnotes.plan(note.extracted_text)
+    return {**fullnotes.plan(note.extracted_text), "quality": note.transcript_quality}
 
 
 @router.post("/full-notes")
@@ -557,7 +557,7 @@ async def export_item(
         raise HTTPException(status_code=400, detail="فرمت باید pdf یا docx باشه.")
     item = await _owned_item(item_id, current_user, db)
     course = await db.get(Course, item.course_id)
-    items = [{"number": item.number, "title": item.title, "content": item.content}]
+    items = [{"number": item.number, "title": item.title, "content": item.content, "kind": item.kind}]
     name = course.name if course else "جزوه"
 
     if fmt == "pdf":

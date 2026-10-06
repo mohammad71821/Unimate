@@ -59,9 +59,33 @@ def _blocks(content: str) -> list[tuple[str, str]]:
     return blocks
 
 
-def _item_title(item: dict) -> str:
+_FA = str.maketrans("0123456789", "۰۱۲۳۴۵۶۷۸۹")
+
+
+def _fa(value) -> str:
+    return str(value).translate(_FA)
+
+
+def _norm(text: str) -> str:
+    return " ".join((text or "").split())
+
+
+def _prepare_item(item: dict) -> tuple[str, list[tuple[str, str]]]:
+    """عنوان و بلوک‌های یه آیتم رو آماده می‌کنه، بدون اینکه جمله‌ی اول هم عنوان باشه هم اولین خط متن.
+    عنوانِ خودکار از اولین خطِ متن ساخته می‌شه، پس اگه اولین بلوک همون باشه یا حذفش می‌کنیم یا عنوان رو عوض می‌کنیم."""
+    blocks = _blocks(item["content"])
     title = (item.get("title") or "").strip()
-    return f"{item['number']}. {title}" if title else f"خلاصه‌ی {item['number']}"
+    if title and blocks:
+        kind0, text0 = blocks[0]
+        if _norm(text0).startswith(_norm(title)) or _norm(title).startswith(_norm(text0)):
+            if kind0 == "h":
+                title = text0  # عنوان کامل از خودِ تیتر
+                blocks = blocks[1:]
+            else:
+                title = ""  # عنوان فقط بریده‌ی جمله‌ی اوله؛ برچسب پیش‌فرض می‌گیره و متن کامل می‌مونه
+    default = "جزوه‌ی کامل" if item.get("kind") == "full" else "خلاصه"
+    heading = f"{_fa(item['number'])}. {title}" if title else f"{default} {_fa(item['number'])}"
+    return heading, blocks
 
 
 # ---------- PDF ----------
@@ -86,7 +110,7 @@ def _footer(canvas, doc) -> None:
     canvas.saveState()
     canvas.setFont("Vazir", 9)
     canvas.setFillColor(colors.HexColor("#888780"))
-    canvas.drawCentredString(A4[0] / 2, 10 * mm, str(canvas.getPageNumber()))
+    canvas.drawCentredString(A4[0] / 2, 10 * mm, _fa(canvas.getPageNumber()))
     canvas.restoreState()
 
 
@@ -133,12 +157,13 @@ def build_jozve_pdf_bytes(course_name: str, items: list[dict]) -> bytes:
 
     story = []
     story += lines_to_paragraphs(course_name, "Vazir-Bold", 20, course_style)
-    story += lines_to_paragraphs(f"{len(items)} خلاصه", "Vazir", 10, meta_style)
+    story += lines_to_paragraphs(f"{_fa(len(items))} مورد", "Vazir", 10, meta_style)
     story.append(HRFlowable(width="100%", thickness=0.8, color=colors.HexColor("#D3D1C7")))
 
     for item in items:
-        story += lines_to_paragraphs(_item_title(item), "Vazir-Bold", 14, heading_style)
-        for kind, text in _blocks(item["content"]):
+        heading, blocks = _prepare_item(item)
+        story += lines_to_paragraphs(heading, "Vazir-Bold", 14, heading_style)
+        for kind, text in blocks:
             if kind == "h":
                 story += lines_to_paragraphs(text, "Vazir-Bold", 12, sub_style)
             elif kind == "b":
@@ -199,12 +224,13 @@ def build_jozve_docx_bytes(course_name: str, items: list[dict]) -> bytes:
     p = _rtl_paragraph(doc, style="Title", space_after=4)
     _add_rtl_run(p, course_name, 22, bold=True, color="042C53")
     p = _rtl_paragraph(doc, space_after=14)
-    _add_rtl_run(p, f"{len(items)} خلاصه", 10, color="5F5E5A")
+    _add_rtl_run(p, f"{_fa(len(items))} مورد", 10, color="5F5E5A")
 
     for item in items:
         p = _rtl_paragraph(doc, style="Heading 2", space_after=6)
-        _add_rtl_run(p, _item_title(item), 15, bold=True, color="042C53")
-        for kind, text in _blocks(item["content"]):
+        heading, blocks = _prepare_item(item)
+        _add_rtl_run(p, heading, 15, bold=True, color="042C53")
+        for kind, text in blocks:
             p = _rtl_paragraph(doc, space_after=4)
             if kind == "h":
                 _add_rtl_run(p, text, 12.5, bold=True, color="173404")

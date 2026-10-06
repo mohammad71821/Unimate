@@ -39,6 +39,8 @@ class Note(Base):
     extracted_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     processing_status: Mapped[str] = mapped_column(String(50), default="pending")
     embedding: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # کیفیت تبدیل صدا به متن: good / fair / poor (برای فایل‌های صوتی؛ بقیه None)
+    transcript_quality: Mapped[str | None] = mapped_column(String(20), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 

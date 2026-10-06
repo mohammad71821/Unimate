@@ -16,7 +16,7 @@ from app.schemas import NoteFromText, SearchQuery, SendTextToChatRequest
 from app.config import settings
 import httpx
 from app.routers.ai import _telegram_chat_id_from_user
-from app.speech_to_text import is_audio, transcribe_audio
+from app.speech_to_text import can_preprocess, is_audio, transcribe_audio_detailed
 from app.storage import storage_backend
 from app.text_extraction import extract_text_from_pdf
 
@@ -40,6 +40,7 @@ async def _try_store_embedding(note: Note, db: AsyncSession) -> None:
 @router.post("/upload")
 async def upload_note(
     file: UploadFile = File(...),
+    hint: str | None = None,  # اختیاری: اسم درس/موضوع تا Whisper اصطلاح‌ها رو بهتر بشنوه
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -58,6 +59,7 @@ async def upload_note(
 
     extracted_text = None
     processing_status = "not_supported"
+    transcript_quality = None
 
     if content_type == "application/pdf" or file.filename.lower().endswith(".pdf"):
         try:
@@ -74,9 +76,13 @@ async def upload_note(
             processing_status = "failed"
     elif is_audio(content_type, file.filename):
         try:
-            if size > 25 * 1024 * 1024:
+            # بدون ffmpeg فایل مستقیم به گروک می‌ره و سقفش ۲۵ مگابایته؛ با ffmpeg اول فشرده می‌شه
+            if size > 25 * 1024 * 1024 and not can_preprocess():
                 raise ValueError("Audio file exceeds Groq's 25MB limit")
-            extracted_text = await transcribe_audio(file_path, file.filename)
+            extracted_text, stt_info = await transcribe_audio_detailed(
+                file_path, file.filename, hint=(hint or "").strip()[:100] or None
+            )
+            transcript_quality = stt_info.get("level")
             processing_status = "done"
         except Exception:
             logger.exception("Audio transcription failed for %s", file.filename)
@@ -97,6 +103,7 @@ async def upload_note(
         content_type=content_type,
         extracted_text=extracted_text,
         processing_status=processing_status,
+        transcript_quality=transcript_quality,
     )
     db.add(note)
     await db.commit()
@@ -110,6 +117,7 @@ async def upload_note(
         "size_bytes": note.file_size_bytes,
         "content_type": note.content_type,
         "processing_status": note.processing_status,
+        "transcript_quality": note.transcript_quality,
     }
 
 
@@ -212,6 +220,7 @@ async def get_note(
         "content_type": note.content_type,
         "processing_status": note.processing_status,
         "extracted_text": note.extracted_text,
+        "transcript_quality": note.transcript_quality,
         "created_at": note.created_at.isoformat() if note.created_at else None,
     }
 
@@ -232,6 +241,7 @@ async def list_my_notes(
             "size_bytes": n.file_size_bytes,
             "content_type": n.content_type,
             "processing_status": n.processing_status,
+            "transcript_quality": n.transcript_quality,
             "created_at": n.created_at.isoformat() if n.created_at else None,
         }
         for n in notes

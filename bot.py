@@ -362,6 +362,16 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
     await message.reply_text("در حال آپلود و پردازش...")
 
+    # اگه درس فعال داریم، اسمش به Whisper کمک می‌کنه اصطلاح‌های اون درس رو درست بشنوه؛ هر خطایی نادیده گرفته می‌شه
+    upload_params = {}
+    if filename.lower().endswith(AUDIO_EXTS):
+        try:
+            active = (await api_request(user_id, "GET", "/jozve/active", timeout=15)).json().get("course")
+            if active:
+                upload_params["hint"] = active["name"]
+        except Exception:
+            pass
+
     with tempfile.NamedTemporaryFile(delete=False, suffix="_" + filename) as tmp:
         await tg_file.download_to_drive(tmp.name)
         tmp_path = tmp.name
@@ -369,7 +379,7 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     try:
         with open(tmp_path, "rb") as f:
             resp = await api_request(
-                user_id, "POST", "/notes/upload", files={"file": (filename, f)}, timeout=600
+                user_id, "POST", "/notes/upload", files={"file": (filename, f)}, params=upload_params, timeout=900
             )
         result = resp.json()
     except httpx.HTTPStatusError as e:
@@ -394,6 +404,13 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     )
     await message.reply_text(reply, reply_markup=note_keyboard(note_id))
 
+    quality = result.get("transcript_quality")
+    if quality in ("poor", "fair"):
+        await message.reply_text(_quality_notice(quality))
+
+    # کیفیت بد = متن غلط؛ خلاصه‌ی خودکار اعتبار رو هدر می‌ده، پس فقط دستی
+    if quality == "poor":
+        return
     await _auto_save_to_active_course(
         message, user_id, note_id, filename, result.get("processing_status")
     )
@@ -1054,6 +1071,16 @@ async def _offer_jozve_save(message, chat_id: int, note_id: str, text: str) -> N
     )
 
 
+def _quality_notice(quality: str) -> str:
+    if quality == "poor":
+        return (
+            "⚠️ کیفیت تبدیل صدا به متن خیلی پایین بود؛ متن احتمالاً پر از کلمه‌ی غلطه و خلاصه یا جزوه‌ی ساخته‌شده ازش هم غلط می‌شه.\n"
+            "قبل از هر کاری «📄 متن» رو ببین. برای نتیجه‌ی بهتر، ضبط رو نزدیک‌تر به استاد و بدون نویز انجام بده و فایل اصلی ضبط رو بفرست، نه ویس فورواردشده.\n"
+            "به همین خاطر خلاصه‌ی خودکار انجام نشد؛ اگه خواستی، دستی بزن."
+        )
+    return "⚠️ کیفیت صدا متوسط بود؛ ممکنه بعضی کلمه‌ها غلط باشن. قبل از استفاده، «📄 متن» رو یه نگاه بنداز."
+
+
 def _truncation_notice(note_id: str) -> str:
     """اگه خلاصه فقط از بخشی از متن ساخته شده باشه، به کاربر می‌گه."""
     meta = _summary_meta.get(note_id)
@@ -1242,6 +1269,11 @@ async def _fn_menu(query, user_id: int, chat_id: int, note_id: str) -> None:
     ]
     if est.get("truncated"):
         lines.append("⚠️ متن خیلی بلنده؛ فقط ۱۵۰ هزار حرف اولش پردازش می‌شه.")
+    if est.get("quality") in ("poor", "fair"):
+        lines.append("")
+        lines.append(_quality_notice(est["quality"]).split("\n")[0])
+        if est["quality"] == "poor":
+            lines.append("جزوه‌ی کامل وفادار به متنه، پس از این متن هم جزوه‌ی غلط می‌سازه. پیشنهاد می‌کنم اول متن رو چک کنی.")
 
     active = next((c for c in courses if c.get("is_active")), None)
     rows = []
