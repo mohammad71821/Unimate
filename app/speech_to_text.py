@@ -9,6 +9,7 @@
 """
 import asyncio
 import logging
+import os
 import re
 import shutil
 import tempfile
@@ -45,7 +46,14 @@ SEGMENT_TARGET_SECONDS = 480      # طول هدف هر تکه
 SEGMENT_MAX_SECONDS = 600         # فایل‌های کوتاه‌تر از این تکه نمی‌شن
 SPLIT_SEARCH_WINDOW = 60          # دنبال سکوت تو ±۶۰ ثانیه‌ی نقطه‌ی هدف می‌گردیم
 FFMPEG_TIMEOUT = 20 * 60
-AUDIO_FILTER = "highpass=f=70,dynaudnorm=f=250:g=15"  # حذف رامبل + یکدست‌کردن بلندی صدا
+# کاهش نویز با متغیر محیطی STT_DENOISE تنظیم می‌شه: off (پیش‌فرض) | light | strong
+# چون Whisper با صدای نویزی آموزش دیده، حذف شدیدِ نویز گاهی دقت رو کمتر هم می‌کنه؛ برای مقایسه،
+# یه فایل رو با دو حالت آپلود کن و مقدار mean_logprob تو لاگ (unimate.stt) رو مقایسه کن.
+DENOISE_FILTERS = {
+    "off": "",
+    "light": "afftdn=nr=10:nf=-30",
+    "strong": "afftdn=nr=20:nf=-30:tn=1",
+}
 RETRY_DELAYS = (0, 5, 15, 30)     # تلاش مجدد برای خطای ۴۲۹/۵xx گروک
 
 # کیفیت: این آستانه‌ها تجربی‌ان؛ مقدارهای واقعی تو لاگ (unimate.stt) چاپ می‌شن تا بشه تنظیمشون کرد
@@ -55,6 +63,9 @@ POOR_MEAN_LOGPROB, FAIR_MEAN_LOGPROB = -0.95, -0.65
 POOR_LOW_RATIO, FAIR_LOW_RATIO = 0.45, 0.20
 POOR_DROPPED_RATIO, FAIR_DROPPED_RATIO = 0.50, 0.25
 PARAGRAPH_GAP_SECONDS = 1.5
+# بخش‌هایی که Whisper بهشون اطمینان کمی داشته با [؟ ... ] علامت می‌خورن (آستانه‌ی تجربی؛ قابل‌تنظیم)
+UNCERTAIN_LOGPROB = -0.9
+UNCERTAIN_OPEN, UNCERTAIN_CLOSE = "[؟ ", "]"
 
 BASE_PROMPT = "این یک جلسه‌ی درس دانشگاهی به زبان فارسی است. متن را با املای درست فارسی و نقطه‌گذاری بنویس."
 
@@ -79,6 +90,8 @@ CLEANUP_SYSTEM_PROMPT = (
     "اصطلاح یا جمله‌ی جدید استفاده نکن.\n"
     "۳. هیچ مطلبی رو حذف، خلاصه یا تفسیر نکن و چیزی هم اضافه نکن. معنی رو عوض نکن.\n"
     "۴. جاهایی که نامفهومه یا مطمئن نیستی رو دست‌نخورده بذار و بعدش [؟] بنویس. حدس الکی نزن.\n"
+    "۴-۱. متنی که به شکل [؟ ... ] اومده، بخشیه که سیستم تبدیل صدا بهش اطمینان نداشته. همون علامت [؟ ... ] رو دورِ "
+    "متنِ متناظر نگه دار؛ محتواش رو فقط برای غلط املایی و نیم‌فاصله اصلاح کن، کامل یا بازنویسی‌ش نکن و حذفش هم نکن.\n"
     "۵. فقط متن اصلاح‌شده رو برگردون، بدون توضیح یا مقدمه.\n"
     "۶. کلمه‌ی انگلیسی یا زبان دیگه وسط متن فارسی نذار؛ فقط اسامی خاص و اختصارات بدون معادل "
     "فارسی (مثل CBT، DSM) می‌تونن لاتین بمونن."
@@ -98,13 +111,24 @@ async def _run(*args: str, timeout: int = FFMPEG_TIMEOUT) -> tuple[int, str, str
     return proc.returncode, out.decode(errors="ignore"), err.decode(errors="ignore")
 
 
+def denoise_mode() -> str:
+    mode = os.environ.get("STT_DENOISE", "off").strip().lower()
+    return mode if mode in DENOISE_FILTERS else "off"
+
+
+def audio_filter(mode: str) -> str:
+    """حذف رامبل → (کاهش نویز) → یکدست‌کردن بلندی؛ نرمال‌سازی بعد از حذف نویز میاد تا نویز تقویت نشه."""
+    parts = ["highpass=f=70", DENOISE_FILTERS[mode], "dynaudnorm=f=250:g=15"]
+    return ",".join(p for p in parts if p)
+
+
 async def _convert(src: Path, workdir: Path) -> Path | None:
-    """mono/16kHz + یکدست‌سازی بلندی + فشرده‌سازی (اول opus، اگه نشد mp3)."""
+    """mono/16kHz + (کاهش نویز) + یکدست‌سازی بلندی + فشرده‌سازی (اول opus، اگه نشد mp3)."""
     for ext, codec in ((".ogg", ["-c:a", "libopus", "-b:a", "24k"]), (".mp3", ["-c:a", "libmp3lame", "-b:a", "40k"])):
         out = workdir / f"prepared{ext}"
         rc, _, err = await _run(
             "ffmpeg", "-y", "-nostdin", "-i", str(src), "-vn", "-ac", "1", "-ar", "16000",
-            "-af", AUDIO_FILTER, *codec, str(out),
+            "-af", audio_filter(denoise_mode()), *codec, str(out),
         )
         if rc == 0 and out.exists() and out.stat().st_size > 1000:
             return out
@@ -231,8 +255,12 @@ def consume_response(data: dict, stats: dict) -> str:
             stats["lp_dur"] += dur
             if logprob < LOW_LOGPROB:
                 stats["low"] += dur
+        text = collapse_repeats(text)
+        if logprob is not None and logprob < UNCERTAIN_LOGPROB:
+            text = f"{UNCERTAIN_OPEN}{text}{UNCERTAIN_CLOSE}"
+            stats["flagged"] = stats.get("flagged", 0) + 1
         sep = "\n\n" if prev_end is not None and start - prev_end > PARAGRAPH_GAP_SECONDS else " "
-        pieces.append((sep if pieces else "") + collapse_repeats(text))
+        pieces.append((sep if pieces else "") + text)
         prev_end = end
     return "".join(pieces).strip()
 
@@ -245,6 +273,7 @@ def quality_from_stats(stats: dict) -> dict:
         "low_ratio": None,
         "dropped_ratio": round(stats["dropped"] / total, 3) if total else None,
         "segments": stats["segments"],
+        "flagged_segments": stats.get("flagged", 0),
         "seconds": round(total),
     }
     if stats["lp_dur"] <= 0:
@@ -278,6 +307,8 @@ async def cleanup_text(raw_text: str) -> str:
         except Exception:
             cleaned = ""
         ok = bool(cleaned) and 0.7 * len(chunk) <= len(cleaned) <= 1.6 * len(chunk)
+        if ok and chunk.count(UNCERTAIN_OPEN.strip()) > cleaned.count(UNCERTAIN_OPEN.strip()) * 1.5 + 1:
+            ok = False  # علامت‌های «کم‌اطمینان» از بین رفتن؛ خروجی قابل‌اعتماد نیست
         changed = changed or ok
         out.append(cleaned if ok else chunk)
     return "\n\n".join(out) if changed else raw_text  # اگه هیچ تکه‌ای قابل‌اعتماد نبود، متن اصلی با پاراگراف‌هاش دست‌نخورده برمی‌گرده
@@ -321,7 +352,7 @@ async def transcribe_audio_detailed(file_path: Path, filename: str, hint: str | 
 
     raw_text = "\n\n".join(pieces).strip()
     info = quality_from_stats(stats)
-    info.update(preprocessed=preprocessed, parts=len(parts), cleaned=False)
+    info.update(preprocessed=preprocessed, parts=len(parts), cleaned=False, denoise=denoise_mode() if preprocessed else None)
     logger.info("Transcription quality for %s: %s", filename, info)
 
     if not raw_text:

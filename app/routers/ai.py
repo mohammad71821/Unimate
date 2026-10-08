@@ -19,6 +19,12 @@ from app.schemas import FlashcardsPdfRequest, SlidesRequest, StudyPlanRequest
 
 router = APIRouter(prefix="/ai", tags=["ai"])
 
+UNCERTAIN_TEXT_RULE = (
+    "Parts of the input wrapped like [؟ ... ] are low-confidence speech-to-text output and may be wrong. "
+    "Do not state them as established facts; if you must mention one, keep it wrapped as [؟ ... ]. "
+    "Never invent content to fill them in."
+)
+
 SUMMARY_SYSTEM_PROMPT = (
     "You are a helpful academic assistant. Summarize the given study material "
     "clearly and concisely, in the same language as the input text. "
@@ -27,7 +33,8 @@ SUMMARY_SYSTEM_PROMPT = (
     "in the Persian text; always use the standard Persian equivalent of technical "
     "terms (e.g. write شناخت‌ها instead of thoughts, باورها instead of beliefs). "
     "Only keep a term in Latin script if it's a proper noun/acronym with no common "
-    "Persian equivalent (e.g. CBT, DSM)."
+    "Persian equivalent (e.g. CBT, DSM). "
+    f"{UNCERTAIN_TEXT_RULE}"
 )
 
 # متن بلندتری که مخصوص فلش‌کارت به مدل می‌فرستیم — چون هدف اینه که هیچ
@@ -64,6 +71,7 @@ def _build_flashcards_system_prompt(min_cards: int, max_cards: int) -> str:
         "do not pad with trivial or repetitive flashcards; generate only as many as the content genuinely "
         "supports, even if that is below the stated range. "
         f'{PERSIAN_ONLY_RULE} '
+        'Do not create flashcards from parts of the text wrapped like [؟ ... ] (low-confidence speech-to-text). '
         'Respond with a JSON object of exactly this shape, and nothing else '
         '(no markdown code fences, no explanation): '
         '{"flashcards": [{"question": "...", "answer": "..."}]}'
@@ -74,6 +82,7 @@ QUESTIONS_SYSTEM_PROMPT = (
     "You are a helpful academic assistant. Read the study material and generate "
     "5 multiple-choice exam questions from it, in the same language as the input text. "
     f'{PERSIAN_ONLY_RULE} '
+    'Do not create questions from parts of the text wrapped like [؟ ... ] (low-confidence speech-to-text). '
     'Respond with a JSON object of exactly this shape, and nothing else '
     '(no markdown code fences, no explanation): '
     '{"questions": [{"question": "...", "options": ["...", "...", "...", "..."], "correct_index": 0}]}'

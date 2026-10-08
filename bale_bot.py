@@ -81,6 +81,8 @@ _pending_item_move: dict[int, str] = {}
 # --- جزوه‌ی کامل ---
 # chat_id -> note_id ای که کاربر منتظر انتخاب درس برای ساخت جزوه‌ی کاملشه
 _pending_full_notes: dict[int, str] = {}
+# chat_id -> True اگه کاربر صریحاً اجازه داده هوش مصنوعی جاهای نامفهوم رو حدس بزنه
+_pending_guess: dict[int, bool] = {}
 # note_id -> {"chars", "used"}: خلاصه از چند حرفِ متن ساخته شد (برای هشدار «خلاصه کامل نیست»)
 _summary_meta: dict[str, dict] = {}
 # نگه‌داشتن رفرنس تسک‌های پیگیریِ جزوه‌ی کامل تا garbage collect نشن
@@ -119,7 +121,7 @@ def _skips_rate_limit(update: Update) -> bool:
     """منوی جزوه هیچ مصرف AI ای نداره، پس مشمول سقف تعداد درخواست نیست (به‌جز ساخت فایل خروجی)."""
     query = update.callback_query
     if query and query.data:
-        if query.data.startswith(("fnall:", "fnnew:", "fnx:")):  # فقط منوی انتخاب درس؛ ساخت کار (fnc:) محدود می‌مونه
+        if query.data.startswith(("fnall:", "fnnew:", "fnx:", "fng:", "fngy:")):  # فقط منوی انتخاب درس؛ ساخت کار (fnc:) محدود می‌مونه
             return True
         return query.data.startswith("jz") and not query.data.startswith(("jzx:", "jzxi:"))
     message = update.message
@@ -406,7 +408,16 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
     quality = result.get("transcript_quality")
     if quality in ("poor", "fair"):
-        await message.reply_text(_quality_notice(quality))
+        await message.reply_text(
+            _quality_notice(quality),
+            reply_markup=(
+                InlineKeyboardMarkup(
+                    [[InlineKeyboardButton("🔮 اجازه‌ی حدس هوش مصنوعی + جزوه‌ی کامل", callback_data=f"fng:{note_id}")]]
+                )
+                if quality == "poor"
+                else None
+            ),
+        )
 
     # کیفیت بد = متن غلط؛ خلاصه‌ی خودکار اعتبار رو هدر می‌ده، پس فقط دستی
     if quality == "poor":
@@ -1075,10 +1086,16 @@ def _quality_notice(quality: str) -> str:
     if quality == "poor":
         return (
             "⚠️ کیفیت تبدیل صدا به متن خیلی پایین بود؛ متن احتمالاً پر از کلمه‌ی غلطه و خلاصه یا جزوه‌ی ساخته‌شده ازش هم غلط می‌شه.\n"
-            "قبل از هر کاری «📄 متن» رو ببین. برای نتیجه‌ی بهتر، ضبط رو نزدیک‌تر به استاد و بدون نویز انجام بده و فایل اصلی ضبط رو بفرست، نه ویس فورواردشده.\n"
-            "به همین خاطر خلاصه‌ی خودکار انجام نشد؛ اگه خواستی، دستی بزن."
+            "بخش‌هایی که سیستم بهشون اطمینان نداشته تو متن با [؟ ...] علامت خورده‌ن و این علامت تو خلاصه، جزوه‌ی کامل و خروجی هم می‌مونه.\n"
+            "قبل از هر کاری «📄 متن» رو ببین. اگه می‌خوای به هر حال ادامه بدی، از دکمه‌های پیام بالا استفاده کن؛ "
+            "به همین خاطر خلاصه‌ی خودکار انجام نشد.\n"
+            "اگه دوست داری هوش مصنوعی جاهای نامفهوم رو حدس بزنه، دکمه‌ی زیر رو بزن (فقط با اجازه‌ی تو و با علامت).\n"
+            "برای نتیجه‌ی بهتر، ضبط رو نزدیک‌تر به استاد و بدون نویز انجام بده و فایل اصلی ضبط رو بفرست، نه ویس فورواردشده."
         )
-    return "⚠️ کیفیت صدا متوسط بود؛ ممکنه بعضی کلمه‌ها غلط باشن. قبل از استفاده، «📄 متن» رو یه نگاه بنداز."
+    return (
+        "⚠️ کیفیت صدا متوسط بود؛ ممکنه بعضی کلمه‌ها غلط باشن. بخش‌های مشکوک تو متن با [؟ ...] علامت خورده‌ن؛ "
+        "قبل از استفاده «📄 متن» رو یه نگاه بنداز."
+    )
 
 
 def _truncation_notice(note_id: str) -> str:
@@ -1253,14 +1270,18 @@ def _fn_error(e: httpx.HTTPStatusError) -> str:
     return _error_message(e)
 
 
-async def _fn_menu(query, user_id: int, chat_id: int, note_id: str) -> None:
+async def _fn_menu(query, user_id: int, chat_id: int, note_id: str, guess: bool = False) -> None:
     """هزینه و زمان رو نشون می‌ده و می‌پرسه تو کدوم درس ذخیره بشه."""
     est = (await api_request(user_id, "GET", f"/jozve/full-notes/estimate/{note_id}")).json()
     courses = (await api_request(user_id, "GET", "/jozve/courses")).json()
     _pending_full_notes[chat_id] = note_id
+    if guess:
+        _pending_guess[chat_id] = True
+    else:
+        _pending_guess.pop(chat_id, None)
 
     lines = [
-        "📖 جزوه‌ی کامل",
+        "📖 جزوه‌ی کامل" + (" — با حدس هوش مصنوعی 🔮" if guess else ""),
         "برخلاف خلاصه، هیچ مطلبی حذف نمی‌شه؛ فقط حرف‌های اضافه و تکرار برداشته می‌شن و متن مرتب و تیتربندی می‌شه.",
         "",
         f"متن: حدود {max(1, est['used_chars'] // 1000)} هزار حرف ← {est['parts']} بخش",
@@ -1275,6 +1296,8 @@ async def _fn_menu(query, user_id: int, chat_id: int, note_id: str) -> None:
         if est["quality"] == "poor":
             lines.append("جزوه‌ی کامل وفادار به متنه، پس از این متن هم جزوه‌ی غلط می‌سازه. پیشنهاد می‌کنم اول متن رو چک کنی.")
 
+    if guess:
+        lines.append("\n🔮 اجازه‌ی حدس داده شده: جاهای نامفهوم با [حدس: ...] مشخص می‌شن و قطعی نیستن.")
     active = next((c for c in courses if c.get("is_active")), None)
     rows = []
     if active:
@@ -1285,21 +1308,23 @@ async def _fn_menu(query, user_id: int, chat_id: int, note_id: str) -> None:
         lines.append("\nتو کدوم درس ذخیره بشه؟")
         rows = _jz_courses_keyboard(courses, "fnc", "fnnew:0").inline_keyboard
         rows = [list(r) for r in rows]
+    if est.get("quality") == "poor" and not guess:
+        rows.append([InlineKeyboardButton("🔮 با حدس هوش مصنوعی (نیاز به اجازه‌ی تو)", callback_data=f"fng:{note_id}")])
     rows.append([InlineKeyboardButton("انصراف", callback_data="fnx:0")])
     await query.message.reply_text("\n".join(lines), reply_markup=InlineKeyboardMarkup(rows))
 
 
 async def _start_full_notes(message, user_id: int, chat_id: int, course_id: str) -> None:
     note_id = _pending_full_notes.pop(chat_id, None)
+    guess = _pending_guess.pop(chat_id, False)
     if not note_id:
         await message.reply_text("این درخواست منقضی شده؛ دوباره «📖 جزوه‌ی کامل» رو بزن.")
         return
+    body = {"note_id": note_id, "course_id": course_id}
+    if guess:
+        body["guess"] = True
     try:
-        job = (
-            await api_request(
-                user_id, "POST", "/jozve/full-notes", json={"note_id": note_id, "course_id": course_id}
-            )
-        ).json()
+        job = (await api_request(user_id, "POST", "/jozve/full-notes", json=body)).json()
     except httpx.HTTPStatusError as e:
         await message.reply_text(_fn_error(e))
         return
@@ -1360,6 +1385,8 @@ async def _follow_full_notes(message, user_id: int, job: dict) -> None:
                 f"✅ جزوه‌ی کامل آماده شد و تو «{st['course_name']}» ذخیره شد — شماره {st['number']}\n"
                 f"{total} بخش، حدود {max(1, (st.get('chars') or 0) // 1000)} هزار حرف"
             )
+            if st.get("guess"):
+                text += "\n🔮 جاهای نامفهوم با [حدس: ...] مشخص شدن؛ قطعی نیستن و باید چک بشن."
             if st.get("failed_parts"):
                 text += (
                     f"\n⚠️ {st['failed_parts']} بخش پردازش نشد و به‌صورت متن خام (با علامت ⚠️) تو جزوه اومده؛ "
@@ -1390,6 +1417,24 @@ async def _handle_full_notes_button(query, user_id: int) -> None:
     try:
         if action == "fn":
             await _fn_menu(query, user_id, chat_id, rest)
+
+        elif action == "fng":
+            await query.message.reply_text(
+                "🔮 حدس هوش مصنوعی\n"
+                "کیفیت این ضبط خیلی پایینه. اگه اجازه بدی، هوش مصنوعی برای جاهای نامفهوم حدس می‌زنه استاد چی گفته.\n\n"
+                "⚠️ حدس‌ها داخل [حدس: ...] میان و قطعی نیستن؛ ممکنه کاملاً غلط باشن. بدون چک‌کردن با استاد یا منبع، برای حفظ‌کردن ازشون استفاده نکن.\n"
+                "از خودش عدد، تاریخ یا اسم نمی‌سازه و بقیه‌ی متن دست‌نخورده می‌مونه.\n\n"
+                "اجازه می‌دی؟",
+                reply_markup=InlineKeyboardMarkup(
+                    [
+                        [InlineKeyboardButton("✅ اجازه می‌دم، حدس بزن", callback_data=f"fngy:{rest}")],
+                        [InlineKeyboardButton("❌ نه، بدون حدس", callback_data=f"fn:{rest}")],
+                    ]
+                ),
+            )
+
+        elif action == "fngy":
+            await _fn_menu(query, user_id, chat_id, rest, guess=True)
 
         elif action == "fnall":
             courses = (await api_request(user_id, "GET", "/jozve/courses")).json()

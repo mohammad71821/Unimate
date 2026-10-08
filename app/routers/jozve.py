@@ -358,6 +358,7 @@ JOB_TTL_SECONDS = 2 * 60 * 60
 class FullNotesCreate(BaseModel):
     note_id: uuid.UUID
     course_id: uuid.UUID
+    guess: bool = False  # فقط با اجازه‌ی صریح کاربر (برای صدای خیلی بد)
 
 
 async def _owned_note_with_text(note_id: uuid.UUID, user: User, db: AsyncSession) -> Note:
@@ -408,7 +409,9 @@ async def _run_full_notes_job(job: dict, text: str) -> None:
         def on_progress(done: int, total: int) -> None:
             job["done_parts"], job["total_parts"] = done, total
 
-        notes, failed, total = await fullnotes.build_full_notes(text, on_progress)
+        notes, failed, total = await fullnotes.build_full_notes(
+            text, on_progress, guess=job.get("guess", False), topic=job.get("course_name_hint")
+        )
         if not notes.strip():
             raise RuntimeError("empty output")
         if total and failed / total > fullnotes.MAX_FAILED_RATIO:
@@ -503,6 +506,8 @@ async def start_full_notes(
         "cost": plan["cost"],
         "spent": spent,
         "spent_date": after[2],
+        "guess": bool(payload.guess),
+        "course_name_hint": course.name,
         "created": time.time(),
     }
     _JOBS[job["id"]] = job
@@ -517,6 +522,7 @@ async def start_full_notes(
         "minutes": plan["minutes"],
         "truncated": plan["truncated"],
         "course_name": course.name,
+        "guess": bool(payload.guess),
     }
 
 
@@ -539,7 +545,7 @@ async def full_notes_status(job_id: str, current_user: User = Depends(get_curren
         )
     keys = (
         "status", "done_parts", "total_parts", "cost", "error",
-        "item_id", "course_id", "course_name", "number", "chars", "failed_parts",
+        "item_id", "course_id", "course_name", "number", "chars", "failed_parts", "guess",
     )
     return {k: job.get(k) for k in keys}
 

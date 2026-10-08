@@ -59,6 +59,21 @@ def _blocks(content: str) -> list[tuple[str, str]]:
     return blocks
 
 
+_UQ = re.compile(r"(\[(?:؟|حدس:)[^\]]*\])")
+LEGEND = "بخش‌های داخل [؟ ... ] کم‌اطمینان‌ان (کیفیت صدا پایین بوده) و ممکنه غلط باشن؛ قبل از حفظ‌کردن، دوباره چکشون کن."
+LEGEND_GUESS = "بخش‌های داخل [حدس: ...] رو هوش مصنوعی با اجازه‌ی تو حدس زده؛ قطعی نیستن و باید با استاد یا منبع تأیید بشن."
+
+
+def _legends(items: list[dict]) -> list[str]:
+    text = "\n".join(it["content"] for it in items)
+    out = []
+    if "[؟" in text:
+        out.append(LEGEND)
+    if "[حدس:" in text:
+        out.append(LEGEND_GUESS)
+    return out
+
+
 _FA = str.maketrans("0123456789", "۰۱۲۳۴۵۶۷۸۹")
 
 
@@ -158,6 +173,8 @@ def build_jozve_pdf_bytes(course_name: str, items: list[dict]) -> bytes:
     story = []
     story += lines_to_paragraphs(course_name, "Vazir-Bold", 20, course_style)
     story += lines_to_paragraphs(f"{_fa(len(items))} مورد", "Vazir", 10, meta_style)
+    for legend in _legends(items):
+        story += lines_to_paragraphs(legend, "Vazir", 10, meta_style)
     story.append(HRFlowable(width="100%", thickness=0.8, color=colors.HexColor("#D3D1C7")))
 
     for item in items:
@@ -188,7 +205,7 @@ def _rtl_paragraph(doc, style: str | None = None, space_after: float = 6):
     return p
 
 
-def _add_rtl_run(p, text: str, size: float, bold: bool = False, color: str | None = None) -> None:
+def _add_rtl_run(p, text: str, size: float, bold: bool = False, color: str | None = None, highlight: str | None = None) -> None:
     run = p.add_run(text)
     rPr = run._r.get_or_add_rPr()
     for child in list(rPr):
@@ -208,7 +225,19 @@ def _add_rtl_run(p, text: str, size: float, bold: bool = False, color: str | Non
         el = OxmlElement(tag)
         el.set(qn("w:val"), str(int(size * 2)))
         rPr.append(el)
+    if highlight:
+        hl = OxmlElement("w:highlight")
+        hl.set(qn("w:val"), highlight)
+        rPr.append(hl)
     rPr.append(OxmlElement("w:rtl"))
+
+
+def _add_marked_runs(p, text: str, size: float, bold: bool = False, color: str | None = None) -> None:
+    """بخش‌های [؟ ... ] (کم‌اطمینان) زرد هایلایت می‌شن."""
+    for part in _UQ.split(text):
+        if part:
+            mark = "cyan" if part.startswith("[حدس:") else "yellow" if _UQ.fullmatch(part) else None
+            _add_rtl_run(p, part, size, bold=bold, color=color, highlight=mark)
 
 
 def build_jozve_docx_bytes(course_name: str, items: list[dict]) -> bytes:
@@ -225,6 +254,9 @@ def build_jozve_docx_bytes(course_name: str, items: list[dict]) -> bytes:
     _add_rtl_run(p, course_name, 22, bold=True, color="042C53")
     p = _rtl_paragraph(doc, space_after=14)
     _add_rtl_run(p, f"{_fa(len(items))} مورد", 10, color="5F5E5A")
+    for legend in _legends(items):
+        p = _rtl_paragraph(doc, space_after=6)
+        _add_rtl_run(p, legend, 10, color="B54708")
 
     for item in items:
         p = _rtl_paragraph(doc, style="Heading 2", space_after=6)
@@ -233,11 +265,11 @@ def build_jozve_docx_bytes(course_name: str, items: list[dict]) -> bytes:
         for kind, text in blocks:
             p = _rtl_paragraph(doc, space_after=4)
             if kind == "h":
-                _add_rtl_run(p, text, 12.5, bold=True, color="173404")
+                _add_marked_runs(p, text, 12.5, bold=True, color="173404")
             elif kind == "b":
-                _add_rtl_run(p, "• " + text, 11.5)
+                _add_marked_runs(p, "• " + text, 11.5)
             else:
-                _add_rtl_run(p, text, 11.5)
+                _add_marked_runs(p, text, 11.5)
 
     buffer = io.BytesIO()
     doc.save(buffer)

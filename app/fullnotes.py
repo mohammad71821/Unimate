@@ -35,9 +35,15 @@ SYSTEM_PROMPT = (
     "examples, numbers, dates, names, steps, comparisons, causes and effects, and anything the "
     "teacher stresses. Do not shorten explanations into one-liners.\n"
     "2. Remove ONLY filler words, false starts, repetitions, greetings and off-topic chatter.\n"
-    "3. Turn spoken language into clear written language, keeping the original meaning and order.\n"
+    "3. Rewrite spoken, colloquial language into standard, formal ACADEMIC written language, keeping the original "
+    "meaning and order. In Persian: replace colloquial forms with their standard written equivalents (e.g. «می‌خوام» → «می‌خواهم», "
+    "«این یعنی که» → «این بدان معناست که»), use precise and concise sentences, consistent terminology, and a clean structure "
+    "(headings, definitions, bullet lists). Do NOT use poetic, ornate or embellished language, and never let the rewriting "
+    "change the meaning of a definition, number, example or claim.\n"
     "4. Never add facts, examples or opinions that are not in the segment. Never 'correct' the content.\n"
-    "5. If a passage is unintelligible or looks like a transcription error, keep it and mark it with [؟].\n"
+    "5. Text wrapped like [؟ ... ] is LOW-CONFIDENCE speech-to-text output that may be wrong. Keep it wrapped "
+    "as [؟ ... ] in the notes, do NOT correct, complete or rephrase it into a confident statement, and never invent "
+    "anything to fill it in. If another passage is unintelligible or looks like a transcription error, keep it and mark it with [؟].\n"
     "6. If the teacher hints at the exam ('this will be on the test', 'remember this', "
     "'important'), put that sentence on its own line starting with: ⭐ نکته‌ی امتحانی:\n"
     "7. Format as Markdown: use '## ' for a major topic and '### ' for a subtopic, only where a "
@@ -50,10 +56,27 @@ SYSTEM_PROMPT = (
 )
 
 
+GUESS_RULES = (
+    "\n\nGUESS MODE: the user EXPLICITLY allowed guesses for low-quality audio. For every part wrapped like [؟ ... ], "
+    "you MAY propose what the speaker most likely meant, using the surrounding sentences and the lecture topic"
+    "{topic}. Write each guess ONLY as [حدس: ...] at the place of the original text (replace the [؟ ... ] wrapper). "
+    "Rules for guesses: (a) a guess may use general domain knowledge only to propose a likely term or phrase; "
+    "(b) never invent numbers, dates, names, statistics, definitions or examples that do not appear elsewhere in the "
+    "text; (c) never state a guess outside the [حدس: ...] brackets or build further claims on it; "
+    "(d) if no reasonable guess exists, keep the original text wrapped as [؟ ... ]."
+)
+
+
 # ---------- شکستن متن ----------
+_SPAN_RE = re.compile(r"\[؟[^\]]*\]")
+_SPACE_HOLD = "\ue000"
+
+
 def split_chunks(text: str) -> list[str]:
-    """متن رو سر جمله/پاراگراف به تکه‌های حدود CHUNK_TARGET حرفی می‌شکنه، بدون اینکه حرفی گم بشه."""
+    """متن رو سر جمله/پاراگراف به تکه‌های حدود CHUNK_TARGET حرفی می‌شکنه، بدون اینکه حرفی گم بشه.
+    بخش‌های علامت‌خورده‌ی [؟ ... ] هیچ‌وقت وسطشون بریده نمی‌شن."""
     text = (text or "").replace("\r", "")
+    text = _SPAN_RE.sub(lambda m: re.sub(r"\s", _SPACE_HOLD, m.group(0)), text)  # فاصله‌های داخل علامت موقتاً قفل می‌شن
     paragraphs = [re.sub(r"\s+", " ", p).strip() for p in re.split(r"\n\s*\n", text)]
 
     units: list[str] = []
@@ -87,7 +110,7 @@ def split_chunks(text: str) -> list[str]:
     if len(chunks) > 1 and len(chunks[-1]) < MIN_LAST_CHUNK:
         chunks[-2] = f"{chunks[-2]} {chunks[-1]}"
         chunks.pop()
-    return chunks
+    return [c.replace(_SPACE_HOLD, " ") for c in chunks]
 
 
 # ---------- قیمت و تخمین ----------
@@ -128,7 +151,9 @@ def _last_heading(markdown: str) -> str:
     return ""
 
 
-async def _notes_for_chunk(provider, chunk: str, index: int, total: int, prev_heading: str) -> str | None:
+async def _notes_for_chunk(
+    provider, chunk: str, index: int, total: int, prev_heading: str, system: str = SYSTEM_PROMPT
+) -> str | None:
     prompt = f"Segment {index + 1} of {total}."
     if prev_heading:
         prompt += (
@@ -142,7 +167,7 @@ async def _notes_for_chunk(provider, chunk: str, index: int, total: int, prev_he
         if delay:
             await asyncio.sleep(delay)
         try:
-            out = ((await call_ai_safely(provider, prompt=prompt, system=SYSTEM_PROMPT)) or "").strip()
+            out = ((await call_ai_safely(provider, prompt=prompt, system=system)) or "").strip()
         except Exception:
             logger.warning("Full-notes chunk %s/%s failed (will retry)", index + 1, total, exc_info=True)
             continue
@@ -155,19 +180,26 @@ async def _notes_for_chunk(provider, chunk: str, index: int, total: int, prev_he
 
 
 async def build_full_notes(
-    text: str, on_progress: Callable[[int, int], None] | None = None
+    text: str,
+    on_progress: Callable[[int, int], None] | None = None,
+    guess: bool = False,
+    topic: str | None = None,
 ) -> tuple[str, int, int]:
-    """برمی‌گردونه: (متن جزوه، تعداد بخش‌های ناموفق، کل بخش‌ها)."""
+    """برمی‌گردونه: (متن جزوه، تعداد بخش‌های ناموفق، کل بخش‌ها).
+    guess=True فقط وقتی باید باشه که کاربر صریحاً اجازه داده؛ topic (اسم درس) به حدس‌ها کمک می‌کنه."""
     chunks = split_chunks((text or "")[:MAX_CHARS])
     if not chunks:
         return "", 0, 0
 
     provider = get_ai_provider()
+    system = SYSTEM_PROMPT
+    if guess:
+        system += GUESS_RULES.format(topic=f' ("{topic.strip()[:80]}")' if topic and topic.strip() else "")
     parts: list[str] = []
     failed = 0
     prev_heading = ""
     for i, chunk in enumerate(chunks):
-        notes = await _notes_for_chunk(provider, chunk, i, len(chunks), prev_heading)
+        notes = await _notes_for_chunk(provider, chunk, i, len(chunks), prev_heading, system)
         if notes:
             parts.append(notes)
             prev_heading = _last_heading(notes) or prev_heading
