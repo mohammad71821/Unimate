@@ -121,14 +121,14 @@ def _skips_rate_limit(update: Update) -> bool:
     """منوی جزوه هیچ مصرف AI ای نداره، پس مشمول سقف تعداد درخواست نیست (به‌جز ساخت فایل خروجی)."""
     query = update.callback_query
     if query and query.data:
-        if query.data.startswith(("fnall:", "fnnew:", "fnx:", "fng:", "fngy:")):  # فقط منوی انتخاب درس؛ ساخت کار (fnc:) محدود می‌مونه
+        if query.data.startswith(("hp:", "fnall:", "fnnew:", "fnx:", "fng:", "fngy:")):  # فقط منوی انتخاب درس؛ ساخت کار (fnc:) محدود می‌مونه
             return True
         return query.data.startswith("jz") and not query.data.startswith(("jzx:", "jzxi:"))
     message = update.message
     if message and message.text:
         chat_id = update.effective_chat.id if update.effective_chat else None
         return (
-            message.text == BTN_JOZVE
+            message.text in (BTN_JOZVE, BTN_HELP)
             or chat_id in _pending_course_name
             or chat_id in _pending_item_number
         )
@@ -280,36 +280,99 @@ def flashcards_result_keyboard(note_id: str) -> InlineKeyboardMarkup:
     )
 
 
-HELP_TEXT = (
-    "یه فایل PDF، عکس، یا ویس بفرست تا پردازشش کنم؛ یا یه متن معمولی مستقیم "
-    "بفرست تا از همون متن نوت بسازم.\n\n"
-    "بعد از آپلود، از دکمه‌های زیر پیام استفاده کن (متن، خلاصه، فلش‌کارت، سؤالات، "
-    "ترجمه، اسلاید)، یا هر پیام متنی دیگه‌ای بفرستی، به‌عنوان سؤال درباره‌ی همون "
-    "فایل ازش می‌پرسم (چت با نوت).\n\n"
-    f"روی «اسلاید» که بزنی، می‌تونی تعداد اسلایدها رو انتخاب کنی (بین {MIN_SLIDES} تا "
-    f"{MAX_SLIDES} تا)، یا با /slides 12 مستقیم مشخصش کنی.\n\n"
-    "فلش‌کارت‌ها الان متناسب با حجم مطلب ساخته می‌شن (مطلب بلندتر → فلش‌کارت "
-    "بیشتر). بعد از ساخته شدن، خودت انتخاب می‌کنی که به صف مرور اضافه بشن یا "
-    "فقط یه PDF رنگی ازشون بگیری.\n\n"
-    f"با «{BTN_SEARCH}» می‌تونی بین همه‌ی نوت‌هات جستجوی معنایی کنی.\n"
-    f"با «{BTN_MY_NOTES}» لیست فایل‌هات رو می‌بینی.\n"
-    f"با «{BTN_CREDITS}» وضعیت پلن و اعتبارت رو می‌بینی.\n"
-    f"با «{BTN_REDEEM}» یه کد شارژ یا پرمیوم رو فعال می‌کنی.\n\n"
-    f"با «{BTN_REVIEW}» یا /review فلش‌کارت‌های معوقه رو مرور می‌کنی — توی "
-    "مرور، اگه کارتی رو دیگه نمی‌خوای، بدون اینکه مرورش کنی می‌تونی حذفش کنی. "
-    "هر روز ساعت ۱۰ صبح اگه کارت معوقه داشته باشی خودم یادت می‌اندازم.\n\n"
-    f"با «{BTN_JOZVE}» خلاصه‌هات رو بر اساس درس دسته‌بندی و شماره‌گذاری می‌کنی و هر وقت خواستی از هر درس "
-    "یه جزوه‌ی مرتب (PDF یا DOCX) می‌گیری. زیر هر خلاصه دکمه‌ی «ذخیره در جزوه» هست. "
-    "با «⭐ درس فعال» ویس‌ها و فایل‌های صوتی کلاس خودکار خلاصه و تو همون درس ذخیره می‌شن.\n"
-    "خلاصه ممکنه بعضی مطالب رو حذف کنه؛ با «📖 جزوه‌ی کامل» از کل متن یه جزوه‌ی مرتب و بدون حذف مطلب می‌گیری "
-    "(هزینه‌ش به طول متن بستگی داره و قبل از شروع بهت نشون داده می‌شه).\n\n"
-    "/studyplan روی یه فایل فعال، یه برنامه‌ی مطالعاتی روزانه می‌سازه.\n"
-    "/remind هم یادآوری می‌سازه (مثلاً /remind 2h وقت مطالعه).\n"
-    "/credits وضعیت پلن و اعتبار باقی‌مونده‌ت رو نشون می‌ده.\n"
-    "/redeem CODE یه کد شارژ یا پرمیوم رو فعال می‌کنه (مثال: /redeem UM-AB12-CD34).\n\n"
-    "نوت‌ها و فایل‌های تو کاملاً جدا و خصوصی‌ان — هیچ کاربر دیگه‌ای بهشون دسترسی نداره.\n\n"
-    "برای خرید پلن پرمیوم یا هر سؤال دیگه‌ای، به @Mzyare پیام بده."
+WELCOME_TEXT = (
+    "سلام! 👋 من یونیمیت‌ام، دستیار درس و جزوه‌ی تو.\n\n"
+    "سه قدم ساده:\n"
+    "1️⃣ یه ویس کلاس، PDF، پاورپوینت یا عکس بفرست\n"
+    "2️⃣ از دکمه‌های زیر پیامش، خلاصه، سؤال یا فلش‌کارت بگیر\n"
+    f"3️⃣ تو «{BTN_JOZVE}» خلاصه‌هات رو بر اساس درس جمع کن و جزوه‌ی مرتب بگیر\n\n"
+    f"هر وقت گیر کردی «{BTN_HELP}» رو بزن."
 )
+
+HELP_MENU_TEXT = "ℹ️ راهنما\nدرباره‌ی چی می‌خوای بدونی؟"
+
+HELP_SECTIONS = {
+    "files": (
+        "📂 فایل‌ها\n\n"
+        "یه ویس، PDF، پاورپوینت یا عکس بفرست؛ یا یه متن معمولی بفرست تا ازش نوت بسازم.\n\n"
+        "زیر هر فایل این دکمه‌ها هست:\n"
+        "• 📄 متن: متن استخراج‌شده\n"
+        "• 📝 خلاصه، ❓ سؤال، 🃏 فلش‌کارت، 🌐 ترجمه\n"
+        f"• 📊 اسلاید: تعداد رو خودت انتخاب می‌کنی ({MIN_SLIDES} تا {MAX_SLIDES})\n"
+        "• 📖 جزوه‌ی کامل: از کل متن، بدون حذف مطلب\n\n"
+        "هر پیام متنی هم که بفرستی، به‌عنوان سؤال درباره‌ی همون فایل جواب می‌دم.\n"
+        f"«{BTN_SEARCH}» بین همه‌ی فایل‌هات می‌گرده و «{BTN_MY_NOTES}» لیست فایل‌هاته."
+    ),
+    "book": (
+        f"📒 جزوه‌ها\n\n"
+        "هر خلاصه‌ای رو که خواستی با «💾 ذخیره در جزوه» تو یه درس نگه دار. بعد تو "
+        f"«{BTN_JOZVE}»:\n"
+        "• شماره‌ها رو عوض می‌کنی و بین درس‌ها جابه‌جا می‌کنی\n"
+        "• از هر درس یه جزوه‌ی مرتب PDF یا DOCX می‌گیری\n\n"
+        "⭐ درس فعال: یه بار فعالش کن؛ از اون به بعد هر ویس یا فایل صوتی که بفرستی خودکار خلاصه و تو همون درس ذخیره می‌شه.\n\n"
+        "📖 جزوه‌ی کامل: خلاصه ممکنه بعضی مطالب رو حذف کنه؛ جزوه‌ی کامل از کل متن ساخته می‌شه. "
+        "هزینه‌ش قبل از شروع نشون داده می‌شه."
+    ),
+    "cards": (
+        "🧠 فلش‌کارت و مرور\n\n"
+        "بعد از ساخت فلش‌کارت، انتخاب می‌کنی به صف مرور اضافه بشن یا فقط PDF بگیری.\n"
+        f"«{BTN_REVIEW}» (یا /review) کارت‌های معوقه رو نشونت می‌ده؛ کارتی که دیگه نمی‌خوای رو می‌تونی حذف کنی.\n"
+        "هر روز ساعت ۱۰ صبح اگه کارت معوقه داشته باشی یادت می‌اندازم."
+    ),
+    "account": (
+        "💳 اعتبار و پلن\n\n"
+        f"«{BTN_CREDITS}»: وضعیت پلن و اعتبارت\n"
+        f"«{BTN_REDEEM}»: فعال‌کردن کد شارژ یا پرمیوم\n"
+        f"«{BTN_INVITE}»: لینک دعوت\n\n"
+        "نوت‌ها و فایل‌هات کاملاً خصوصی‌ان و هیچ کاربر دیگه‌ای بهشون دسترسی نداره.\n"
+        "برای خرید پلن پرمیوم یا هر سؤال دیگه، به @Mzyare پیام بده."
+    ),
+    "web": (
+        f"{BTN_WEB}\n\n"
+        "فایل‌ها و جزوه‌هات رو تو مرورگر با ظاهر بهتر می‌بینی و مدیریت می‌کنی. "
+        "هر چی اینجا بفرستی اونجا هم هست و برعکس.\n"
+        "⚠️ بدون VPN باز نمی‌شه.\n"
+        f"دکمه‌ی «{BTN_WEB}» تو منوی پایین یه لینک ورود می‌ده."
+    ),
+    "cmds": (
+        "⌨️ دستورها\n\n"
+        "/studyplan: برنامه‌ی مطالعه‌ی روزانه برای فایل فعال\n"
+        f"/slides 12: ساخت اسلاید با تعداد دلخواه ({MIN_SLIDES} تا {MAX_SLIDES})\n"
+        "/remind 2h وقت مطالعه: یادآوری\n"
+        "/review: مرور فلش‌کارت‌ها\n"
+        "/credits: وضعیت اعتبار\n"
+        "/redeem CODE: فعال‌سازی کد (مثال: /redeem UM-AB12-CD34)"
+    ),
+}
+
+HELP_MENU_BUTTONS = [
+    [("📂 فایل‌ها", "files"), ("📒 جزوه‌ها", "book")],
+    [("🧠 فلش‌کارت و مرور", "cards"), ("💳 اعتبار و پلن", "account")],
+    [("🌐 وب‌اپ", "web"), ("⌨️ دستورها", "cmds")],
+]
+
+
+def _help_menu_markup() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [[InlineKeyboardButton(label, callback_data=f"hp:{key}") for label, key in row] for row in HELP_MENU_BUTTONS]
+    )
+
+
+async def _handle_help_button(query) -> None:
+    key = query.data.partition(":")[2]
+    if key in HELP_SECTIONS:
+        await _jz_nav(
+            query,
+            HELP_SECTIONS[key],
+            InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ همه‌ی بخش‌ها", callback_data="hp:menu")]]),
+        )
+    else:
+        await _jz_nav(query, HELP_MENU_TEXT, _help_menu_markup())
+
+
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await update.message.reply_text(HELP_MENU_TEXT, reply_markup=_help_menu_markup())
+
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -327,9 +390,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     except Exception:
         logger.exception("Failed to register referral on start")
 
-    await update.message.reply_text(
-        "سلام! 👋\n\n" + HELP_TEXT, reply_markup=MAIN_KEYBOARD
-    )
+    await update.message.reply_text(WELCOME_TEXT, reply_markup=MAIN_KEYBOARD)
     if WEBAPP_URL:
         await update.message.reply_text(
             "برای تجربه‌ی گرافیکی‌تر (مرور فلش‌کارت، نوت‌ها، پروفایل)، از همینجا وارد مینی‌اپ شو:",
@@ -701,6 +762,10 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     if query.data.startswith("flashpdf:"):
         _, note_id = query.data.split(":", 1)
         await _handle_flashcards_pdf(query, user_id, note_id)
+        return
+
+    if query.data.startswith("hp:"):
+        await _handle_help_button(query)
         return
 
     if query.data.startswith("fn"):
@@ -1832,7 +1897,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         return
 
     if text == BTN_HELP:
-        await update.message.reply_text(HELP_TEXT)
+        await help_command(update, context)
         return
 
     if text == BTN_CREDITS:
@@ -2079,6 +2144,7 @@ def build_app() -> Application:
         .build()
     )
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("text", show_text))
     app.add_handler(CommandHandler("summary", show_summary))
     app.add_handler(CommandHandler("flashcards", show_flashcards))
