@@ -74,6 +74,14 @@ def _legends(items: list[dict]) -> list[str]:
     return out
 
 
+_EMOJI_RE = re.compile("[\U0001F000-\U0001FFFF\u2600-\u27BF\u2B00-\u2BFF\uFE0F\u200d]")
+
+
+def _strip_emoji(text: str) -> str:
+    """فونت وزیرمتن شکلک نداره و تو PDF مربع نشون می‌ده؛ برچسب‌های متنی (مثل «تکمیل علمی») می‌مونن."""
+    return re.sub(r"\s{2,}", " ", _EMOJI_RE.sub("", text)).strip()
+
+
 _FA = str.maketrans("0123456789", "۰۱۲۳۴۵۶۷۸۹")
 
 
@@ -166,7 +174,7 @@ def build_jozve_pdf_bytes(course_name: str, items: list[dict]) -> bytes:
 
     def lines_to_paragraphs(text: str, font: str, size: float, style: ParagraphStyle, indent: float = 0):
         out = []
-        for line in _wrap_fa(text, font, size, width - indent):
+        for line in _wrap_fa(_strip_emoji(text), font, size, width - indent):
             out.append(Paragraph(escape(line), style))
         return out
 

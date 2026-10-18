@@ -83,6 +83,8 @@ _pending_item_move: dict[int, str] = {}
 _pending_full_notes: dict[int, str] = {}
 # chat_id -> True اگه کاربر صریحاً اجازه داده هوش مصنوعی جاهای نامفهوم رو حدس بزنه
 _pending_guess: dict[int, bool] = {}
+# chat_id -> آیا کاربر «غنی‌سازی علمی» رو خاموش/روشن کرده (پیش‌فرض روشن)
+_pending_enrich: dict[int, bool] = {}
 # note_id -> {"chars", "used"}: خلاصه از چند حرفِ متن ساخته شد (برای هشدار «خلاصه کامل نیست»)
 _summary_meta: dict[str, dict] = {}
 # نگه‌داشتن رفرنس تسک‌های پیگیریِ جزوه‌ی کامل تا garbage collect نشن
@@ -121,7 +123,7 @@ def _skips_rate_limit(update: Update) -> bool:
     """منوی جزوه هیچ مصرف AI ای نداره، پس مشمول سقف تعداد درخواست نیست (به‌جز ساخت فایل خروجی)."""
     query = update.callback_query
     if query and query.data:
-        if query.data.startswith(("hp:", "fnall:", "fnnew:", "fnx:", "fng:", "fngy:")):  # فقط منوی انتخاب درس؛ ساخت کار (fnc:) محدود می‌مونه
+        if query.data.startswith(("hp:", "fnall:", "fnnew:", "fnx:", "fng:", "fngy:", "fne:")):  # فقط منوی انتخاب درس؛ ساخت کار (fnc:) محدود می‌مونه
             return True
         return query.data.startswith("jz") and not query.data.startswith(("jzx:", "jzxi:"))
     message = update.message
@@ -1335,7 +1337,7 @@ def _fn_error(e: httpx.HTTPStatusError) -> str:
     return _error_message(e)
 
 
-async def _fn_menu(query, user_id: int, chat_id: int, note_id: str, guess: bool = False) -> None:
+async def _fn_menu(query, user_id: int, chat_id: int, note_id: str, guess: bool = False, toggle: bool = False) -> None:
     """هزینه و زمان رو نشون می‌ده و می‌پرسه تو کدوم درس ذخیره بشه."""
     est = (await api_request(user_id, "GET", f"/jozve/full-notes/estimate/{note_id}")).json()
     courses = (await api_request(user_id, "GET", "/jozve/courses")).json()
@@ -1345,14 +1347,35 @@ async def _fn_menu(query, user_id: int, chat_id: int, note_id: str, guess: bool 
     else:
         _pending_guess.pop(chat_id, None)
 
+    # غنی‌سازی فقط وقتی ممکنه که متن قابل‌اعتماد باشه (نه صدای ضعیف، نه حالت حدس)
+    can_enrich = not guess and est.get("quality") != "poor" and "cost_enriched" in est  # سرور قدیمی فیلدش رو نداره
+    if toggle:
+        _pending_enrich[chat_id] = not _pending_enrich.get(chat_id, True)
+    else:
+        _pending_enrich[chat_id] = True  # هر بار منو از اول باز می‌شه، پیش‌فرض روشنه
+    enrich = can_enrich and _pending_enrich.get(chat_id, True)
+    parts = est["parts_enriched"] if enrich else est["parts"]
+    cost = est["cost_enriched"] if enrich else est["cost"]
+    minutes = est["minutes_enriched"] if enrich else est["minutes"]
+
     lines = [
         "📖 جزوه‌ی کامل" + (" — با حدس هوش مصنوعی 🔮" if guess else ""),
-        "برخلاف خلاصه، هیچ مطلبی حذف نمی‌شه؛ فقط حرف‌های اضافه و تکرار برداشته می‌شن و متن مرتب و تیتربندی می‌شه.",
+        "برخلاف خلاصه، هیچ مطلبی حذف نمی‌شه؛ فقط حرف‌های اضافه و تکرار برداشته می‌شن و متن مرتب، نوشتاری و تیتربندی می‌شه.",
         "",
-        f"متن: حدود {max(1, est['used_chars'] // 1000)} هزار حرف ← {est['parts']} بخش",
-        f"هزینه: {est['cost']} اعتبار",
-        f"زمان تقریبی: حدود {est['minutes']} دقیقه (می‌تونی تو این مدت از ربات استفاده کنی)",
+        f"متن: حدود {max(1, est['used_chars'] // 1000)} هزار حرف ← {parts} مرحله",
+        f"هزینه: {cost} اعتبار",
+        f"زمان تقریبی: حدود {minutes} دقیقه (می‌تونی تو این مدت از ربات استفاده کنی)",
     ]
+    if enrich:
+        lines.append(
+            "\n🧪 غنی‌سازی علمی روشنه: مثل یه استاد راهنما، تعریف‌ها و نظریه‌های استاندارد رشته رو هم اضافه می‌کنم. "
+            "این بخش‌ها جدا و با 🔎 علامت می‌خورن و حرف‌های استاد دست‌نخورده می‌مونه؛ قبل از حفظ‌کردن تأییدشون کن. "
+            "جزوه با ساختار «عنوان، مفاهیم کلیدی، متن مشروح، نکات مهم» تحویل داده می‌شه."
+        )
+    elif can_enrich:
+        lines.append("\n🧪 غنی‌سازی علمی خاموشه: فقط حرف‌های استاد مرتب و نوشتاری می‌شن.")
+    elif not guess and est.get("quality") == "poor":
+        lines.append("\n🧪 غنی‌سازی علمی برای متن با کیفیت پایین خاموشه، چون پایه‌ی درستی نداره.")
     if est.get("truncated"):
         lines.append("⚠️ متن خیلی بلنده؛ فقط ۱۵۰ هزار حرف اولش پردازش می‌شه.")
     if est.get("quality") in ("poor", "fair"):
@@ -1373,21 +1396,30 @@ async def _fn_menu(query, user_id: int, chat_id: int, note_id: str, guess: bool 
         lines.append("\nتو کدوم درس ذخیره بشه؟")
         rows = _jz_courses_keyboard(courses, "fnc", "fnnew:0").inline_keyboard
         rows = [list(r) for r in rows]
+    if can_enrich:
+        rows.append([InlineKeyboardButton("🧪 غنی‌سازی علمی: " + ("روشن ✅" if enrich else "خاموش ⬜"), callback_data=f"fne:{note_id}")])
     if est.get("quality") == "poor" and not guess:
         rows.append([InlineKeyboardButton("🔮 با حدس هوش مصنوعی (نیاز به اجازه‌ی تو)", callback_data=f"fng:{note_id}")])
     rows.append([InlineKeyboardButton("انصراف", callback_data="fnx:0")])
-    await query.message.reply_text("\n".join(lines), reply_markup=InlineKeyboardMarkup(rows))
+    markup = InlineKeyboardMarkup(rows)
+    if toggle:
+        await _jz_nav(query, "\n".join(lines), markup)
+    else:
+        await query.message.reply_text("\n".join(lines), reply_markup=markup)
 
 
 async def _start_full_notes(message, user_id: int, chat_id: int, course_id: str) -> None:
     note_id = _pending_full_notes.pop(chat_id, None)
     guess = _pending_guess.pop(chat_id, False)
+    enrich = _pending_enrich.pop(chat_id, True)
     if not note_id:
         await message.reply_text("این درخواست منقضی شده؛ دوباره «📖 جزوه‌ی کامل» رو بزن.")
         return
     body = {"note_id": note_id, "course_id": course_id}
     if guess:
         body["guess"] = True
+    if not enrich:
+        body["enrich"] = False  # پیش‌فرض سرور روشنه؛ فقط وقتی کاربر خاموش کرده می‌فرستیم
     try:
         job = (await api_request(user_id, "POST", "/jozve/full-notes", json=body)).json()
     except httpx.HTTPStatusError as e:
@@ -1452,6 +1484,10 @@ async def _follow_full_notes(message, user_id: int, job: dict) -> None:
             )
             if st.get("guess"):
                 text += "\n🔮 جاهای نامفهوم با [حدس: ...] مشخص شدن؛ قطعی نیستن و باید چک بشن."
+            if st.get("enrich"):
+                text += "\n🧪 این جزوه غنی‌سازی علمی شده: بخش‌های 🔎 افزوده‌ی هوش مصنوعی‌ان، نه حرف استاد؛ قبل از حفظ‌کردن تأییدشون کن."
+                if st.get("enrich_failed"):
+                    text += f"\n(غنی‌سازی {st['enrich_failed']} بخش انجام نشد و اون بخش‌ها فقط بازنویسی شدن.)"
             if st.get("failed_parts"):
                 text += (
                     f"\n⚠️ {st['failed_parts']} بخش پردازش نشد و به‌صورت متن خام (با علامت ⚠️) تو جزوه اومده؛ "
@@ -1482,6 +1518,9 @@ async def _handle_full_notes_button(query, user_id: int) -> None:
     try:
         if action == "fn":
             await _fn_menu(query, user_id, chat_id, rest)
+
+        elif action == "fne":
+            await _fn_menu(query, user_id, chat_id, rest, guess=_pending_guess.get(chat_id, False), toggle=True)
 
         elif action == "fng":
             await query.message.reply_text(

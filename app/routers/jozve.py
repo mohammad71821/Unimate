@@ -359,6 +359,7 @@ class FullNotesCreate(BaseModel):
     note_id: uuid.UUID
     course_id: uuid.UUID
     guess: bool = False  # فقط با اجازه‌ی صریح کاربر (برای صدای خیلی بد)
+    enrich: bool = True  # جزوه‌ی علمی (غنی‌سازی)؛ برای صدای ضعیف یا حالت حدس خودکار خاموش می‌شه
 
 
 async def _owned_note_with_text(note_id: uuid.UUID, user: User, db: AsyncSession) -> Note:
@@ -409,9 +410,15 @@ async def _run_full_notes_job(job: dict, text: str) -> None:
         def on_progress(done: int, total: int) -> None:
             job["done_parts"], job["total_parts"] = done, total
 
-        notes, failed, total = await fullnotes.build_full_notes(
-            text, on_progress, guess=job.get("guess", False), topic=job.get("course_name_hint")
-        )
+        meta: dict = {}
+        if job.get("enrich"):
+            notes, failed, total, meta = await fullnotes.build_scientific_notes(
+                text, on_progress, topic=job.get("course_name_hint")
+            )
+        else:
+            notes, failed, total = await fullnotes.build_full_notes(
+                text, on_progress, guess=job.get("guess", False), topic=job.get("course_name_hint")
+            )
         if not notes.strip():
             raise RuntimeError("empty output")
         if total and failed / total > fullnotes.MAX_FAILED_RATIO:
@@ -444,6 +451,7 @@ async def _run_full_notes_job(job: dict, text: str) -> None:
                 number=number,
                 chars=len(notes),
                 failed_parts=failed,
+                enrich_failed=meta.get("enrich_failed", 0),
             )
         finally:
             await agen.aclose()
@@ -487,10 +495,15 @@ async def start_full_notes(
 
     text = note.extracted_text
     plan = fullnotes.plan(text)
+    # غنی‌سازی علمی فقط وقتی معنی داره که متن قابل‌اعتماد باشه: برای صدای ضعیف یا حالت حدس، سرور خاموشش می‌کنه
+    enrich = bool(payload.enrich) and not payload.guess and note.transcript_quality != "poor"
+    cost = plan["cost_enriched"] if enrich else plan["cost"]
+    parts = plan["parts_enriched"] if enrich else plan["parts"]
+    minutes = plan["minutes_enriched"] if enrich else plan["minutes"]
 
     # اعتبار موقع شروع کم می‌شه (اگه کافی نباشه consume_credit خودش ۴۰۲ می‌ده و کاری شروع نمی‌شه)
     before = (current_user.credits, current_user.daily_credits_used, current_user.daily_credits_date)
-    await consume_credit(current_user, db, amount=plan["cost"])
+    await consume_credit(current_user, db, amount=cost)
     await db.commit()
     after = (current_user.credits, current_user.daily_credits_used, current_user.daily_credits_date)
     spent = fullnotes.credit_spent(before, after)
@@ -502,8 +515,9 @@ async def start_full_notes(
         "course_id": str(course.id),
         "status": "running",
         "done_parts": 0,
-        "total_parts": plan["parts"],
-        "cost": plan["cost"],
+        "total_parts": parts,
+        "cost": cost,
+        "enrich": enrich,
         "spent": spent,
         "spent_date": after[2],
         "guess": bool(payload.guess),
@@ -517,12 +531,13 @@ async def start_full_notes(
 
     return {
         "job_id": job["id"],
-        "parts": plan["parts"],
-        "cost": plan["cost"],
-        "minutes": plan["minutes"],
+        "parts": parts,
+        "cost": cost,
+        "minutes": minutes,
         "truncated": plan["truncated"],
         "course_name": course.name,
         "guess": bool(payload.guess),
+        "enrich": enrich,
     }
 
 
@@ -545,7 +560,7 @@ async def full_notes_status(job_id: str, current_user: User = Depends(get_curren
         )
     keys = (
         "status", "done_parts", "total_parts", "cost", "error",
-        "item_id", "course_id", "course_name", "number", "chars", "failed_parts", "guess",
+        "item_id", "course_id", "course_name", "number", "chars", "failed_parts", "guess", "enrich", "enrich_failed",
     )
     return {k: job.get(k) for k in keys}
 
