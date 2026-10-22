@@ -1,0 +1,156 @@
+.
+├── app
+│   ├── ai
+│   │   ├── __init__.py
+│   │   ├── base.py
+│   │   ├── gateway.py
+│   │   ├── gemini_provider.py
+│   │   ├── groq_provider.py
+│   │   └── openrouter_provider.py
+│   ├── fonts
+│   │   ├── Vazirmatn-Bold.ttf
+│   │   └── Vazirmatn-Regular.ttf
+│   ├── routers
+│   │   ├── __init__.py
+│   │   ├── admin.py
+│   │   ├── ai.py
+│   │   ├── auth.py
+│   │   ├── chat.py
+│   │   ├── flashcards.py
+│   │   ├── notes.py
+│   │   ├── redeem.py
+│   │   ├── reminders.py
+│   │   └── webapp.py
+│   ├── __init__.py
+│   ├── config.py
+│   ├── database.py
+│   ├── deps.py
+│   ├── embeddings.py
+│   ├── flashcard_pdf.py
+│   ├── main.py
+│   ├── models.py
+│   ├── ocr.py
+│   ├── pptx_extraction.py
+│   ├── pptx_generation.py
+│   ├── pptx_generation.py.backup
+│   ├── pptx_generation.py.backup3
+│   ├── schemas.py
+│   ├── security.py
+│   ├── speech_to_text.py
+│   ├── storage.py
+│   └── text_extraction.py
+├── migrations
+│   ├── versions
+│   │   ├── a1c9f2e5d701_add_embedding_to_notes.py
+│   │   ├── a3e5c9d2f104_add_flashcards_spaced_repetition.py
+│   │   ├── b3b204d66c35_add_daily_credits_and_referrals.py
+│   │   ├── b5ea440127a3_add_chat_sessions_and_messages.py
+│   │   ├── bb6eb1ea0b6f_create_notes_table.py
+│   │   ├── c3f7a4e91b22_create_reminders_table.py
+│   │   ├── d5b8e6f13a44_add_plan_and_credits_to_users.py
+│   │   ├── e7a1c4f8b930_create_redeem_codes.py
+│   │   ├── ec63def5d668_create_users_table.py
+│   │   ├── f2b9d6a1c847_add_premium_duration.py
+│   │   └── f6d43b30a863_add_extracted_text_and_processing_.py
+│   ├── README
+│   ├── env.py
+│   └── script.py.mako
+├── storage_data
+│   ├── 04fa2a79-85f5-4644-ab34-2eed4a16c65f.txt
+│   ├── 057aef16-ffaa-4c5f-a307-1fb13006b095.ogg
+│   ├── 06f88fd6-0481-4fe3-8493-b411274dbf31.pdf
+│   ├── 08111bec-2dd1-46dd-a249-438ede065757.jpg
+│   ├── 10a18c9a-cd87-4b59-a16d-59b8d7e51aa1.pdf
+│   ├── 11190ab4-0689-4eba-8088-964f7419a098.pdf
+│   ├── 1191854e-4197-40c5-a241-58f92afe2b34.jpg
+│   ├── 1eb75583-bab7-4655-939f-926a1cf29c66.pdf
+│   ├── 243a2066-2857-442e-bcb6-427a46933381.jpg
+│   ├── 268861ff-7379-42b8-9e7a-8272dfa275da.m4a
+│   ├── 276a2040-ad0e-44ab-a37e-556a4c93d9d6.jpg
+│   ├── 2c57e69e-9cad-4dde-a7d9-22631c4f47ca.pdf
+│   ├── 3170ec05-8dc1-4dff-b4e5-5b377e4fc233.pdf
+│   ├── 33a1bc52-db56-4407-ae72-d5fe28a3b4a8.pptx
+│   ├── 38940b3c-f9f9-4fef-8b60-d2975442c501.ogg
+│   ├── 3c8cfa8f-dabb-4b29-bfe7-0759d11f2c21.ogg
+│   ├── 3dd87300-8e67-4bef-b961-fde6f663a94a.ogg
+│   ├── 44f0aa30-0bd4-4f41-9a51-985e6bf85d85.jpg
+│   ├── 49d18896-2e23-4d59-935c-91edf3fe0b99.ogg
+│   ├── 4b4c5879-c186-469e-ac91-1958d0c371de.pptx
+│   ├── 4c3f3559-484d-41e9-8946-d59123b45b5c.m4a
+│   ├── 4f2002d6-7802-446f-b063-9f5b7eb08b1e.pdf
+│   ├── 53060df3-4b3c-44f6-8c27-82983555f406.ogg
+│   ├── 56520895-0176-4dea-b160-339ae8af0ab2.ogg
+│   ├── 595d38e6-6b19-41eb-8641-7dd2cc3b50c6.ogg
+│   ├── 5cf4390e-8931-42a2-9db5-e205426b27bd.m4a
+│   ├── 5d22925e-eebd-42b9-83df-06c71aec8d15.jpg
+│   ├── 5e81ac8a-dfc1-47a8-b160-72bb53b7ce1a.ogg
+│   ├── 62f35e67-0926-4974-990a-c92f40fd2b02.pdf
+│   ├── 63a82e09-5545-4a08-bdb9-31234f1d896e.pdf
+│   ├── 66947b1b-520d-4baa-9974-25c6ce320cbe.jpg
+│   ├── 6794b2a9-f136-4b21-9215-b6e8008ef10e.ogg
+│   ├── 6c680d42-dc9d-4596-8263-81cd05667ceb.pptx
+│   ├── 6fec2168-1d9a-4518-bf64-a23d5e415959.txt
+│   ├── 76325487-bd3b-4b4c-93b5-e8cb77c127f7.m4a
+│   ├── 77540ef1-2d04-4c53-bf87-5f0d37697800.pdf
+│   ├── 785663b3-5314-4f96-b37f-5667d51a78a1.ogg
+│   ├── 78d1a4f9-5921-43ba-a7bd-915ee8a8ee5e.ogg
+│   ├── 7944a93f-2c8a-42d4-9cd5-f3b09203fec9.ogg
+│   ├── 7e24a500-f40d-4980-899f-4aecde2879c4.pdf
+│   ├── 814ee476-6b4f-4820-b313-a7a6ba13150a.jpg
+│   ├── 87ce8866-b7f0-4cf8-99b4-7ae52121fa4a.jpg
+│   ├── 8c3be6f6-b2de-4176-bcb0-e4f98ee2371b.jpg
+│   ├── 8eede5c9-68fa-4c4d-bae6-e4cd12434e68.jpg
+│   ├── 9387796f-5bdb-41f1-94b2-eddc10be76a8.pdf
+│   ├── 944db963-01b8-48a1-805b-03a9b3f3417c.jpg
+│   ├── 951210f7-c50f-4eac-9b9f-13310ee73cef.ogg
+│   ├── 9cce72d0-0bb1-41f3-b25a-3c052c4cb6e0.ogg
+│   ├── 9f0d8867-550f-4abf-a288-943e6da63abf.jpg
+│   ├── aa2292e9-052d-4ffb-85f0-287efde701d8.ogg
+│   ├── abff75c4-6df6-4b24-8e9d-f7993c6c422e.txt
+│   ├── b8810a2d-b603-41c3-8998-79bfc714fd31.m4a
+│   ├── bb8e908b-0cc3-449d-8ea4-37ac8700e656.jpg
+│   ├── c014e0e1-216d-40e3-a6c4-593b1150e38d.jpg
+│   ├── c5fc47bc-46b8-4664-9066-6059be48f5e3.m4a
+│   ├── cd05ad5e-ea54-476c-83d3-82d05f36366a.m4a
+│   ├── cd9ec43c-0230-4e55-b512-5c1c1563c8ae.ogg
+│   ├── d017fe79-c91e-445f-98aa-68aeab7bb055.ogg
+│   ├── d120357d-a370-4053-b2da-90393aac4d3a.pdf
+│   ├── d35aae32-4d52-4934-a342-ce98128b8a78.ogg
+│   ├── d628d46a-fc8b-44c5-bc0c-d04e4680fc6b.pdf
+│   ├── dfb4e3d0-c47d-433e-a8e1-d767d150c1d2.jpg
+│   ├── e24a7339-a996-4295-bc75-b6fd411c4f28.ogg
+│   ├── e2665a08-cda3-4292-a4bd-3ca722eecc45.ogg
+│   ├── e527a6bf-80c8-4ddc-8017-a2a41d10a2f4.jpg
+│   ├── ec0068be-44f0-45a1-b5f2-a98937367f45.ogg
+│   ├── f492f837-c7db-4670-abe2-cc7f31e538a6.ogg
+│   ├── f5dfccc9-b6a5-40c2-8475-71ca3a1f2154.m4a
+│   ├── f694b58e-3d79-47aa-b4fe-d62461ba41a5.pdf
+│   ├── f7ff2398-0c34-46cb-9770-a3ff2fc5cf1a.zip
+│   └── fe7759c7-2faa-4801-9094-93e60a61a0db.mp3
+├── .env
+├── .gitignore
+├── Dockerfile
+├── alembic.ini
+├── bale_bot.py
+├── boot.log
+├── bot.py
+├── bot.py.bak
+├── bot_heartbeat.txt
+├── flashcard-debug.zip
+├── for_railway.zip
+├── my_project.zip
+├── project-files.zip
+├── project.zip
+├── project2.zip
+├── project_backup.zip
+├── project_code.zip
+├── project_for_ai.zip
+├── requirements.txt
+├── start.sh
+├── stop.sh
+├── tree.txt
+├── update_pptx.py
+├── update_pptx3.py
+└── watchdog.sh
+
+8 directories, 146 files

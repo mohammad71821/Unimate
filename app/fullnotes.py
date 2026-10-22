@@ -46,9 +46,9 @@ SYSTEM_PROMPT = (
     "(headings, definitions, bullet lists). Do NOT use poetic, ornate or embellished language, and never let the rewriting "
     "change the meaning of a definition, number, example or claim.\n"
     "4. Never add facts, examples or opinions that are not in the segment. Never 'correct' the content.\n"
-    "5. Text wrapped like [؟ ... ] is LOW-CONFIDENCE speech-to-text output that may be wrong. Keep it wrapped "
-    "as [؟ ... ] in the notes, do NOT correct, complete or rephrase it into a confident statement, and never invent "
-    "anything to fill it in. If another passage is unintelligible or looks like a transcription error, keep it and mark it with [؟].\n"
+    "5. Text wrapped like [؟ ... ] is speech-to-text output with low confidence. Intelligently deduce and "
+    "reconstruct any unclear or garbled words based on the surrounding context and the overall subject matter of the lecture. "
+    "Never leave question marks (?) or unclear placeholders in the notes; transform them into fluent, correct academic sentences.\n"
     "6. If the teacher hints at the exam ('this will be on the test', 'remember this', "
     "'important'), put that sentence on its own line starting with: ⭐ نکته‌ی امتحانی:\n"
     "7. Format as Markdown: use '## ' for a major topic and '### ' for a subtopic, only where a "
@@ -355,13 +355,12 @@ def _merge_concepts(all_concepts: list[dict]) -> list[dict]:
     seen: dict[str, dict] = {}
     for c in all_concepts:
         key = re.sub(r"\s+", "", c["term"]).lower()
-        if key not in seen or (seen[key]["added"] and not c["added"]):  # تعریف خود کلاس از افزوده‌ی AI ارجح‌تره
+        if key not in seen or (seen[key]["added"] and not c["added"]):
             seen[key] = c
     return list(seen.values())[:MAX_CONCEPTS]
 
 
 def assemble_scientific_notes(title: str, concepts: list[dict], body: str, notes: list[dict], enriched_any: bool) -> str:
-    """ساختار نهایی: عنوان ← مفاهیم کلیدی ← متن مشروح ← نکات مهم."""
     doc = [f"# {title}"]
     if enriched_any:
         doc.append(ENRICH_LEGEND)
@@ -400,9 +399,6 @@ async def build_scientific_notes(
     field: str | None = None,
     topic: str | None = None,
 ) -> tuple[str, int, int, dict]:
-    """برمی‌گردونه: (جزوه، تعداد بخش‌های ناموفقِ مرحله‌ی ۱، کل تکه‌ها، اطلاعات اضافه).
-    مرحله ۱: بازنویسیِ وفادار و تمیزکردن هر تکه. مرحله ۲: غنی‌سازیِ علمی که فقط «اضافه» می‌کنه و جدا و علامت‌دار می‌آد.
-    مرحله ۳: ساختار نهایی با عنوان، مفاهیم کلیدی، متن مشروح و نکات مهم."""
     chunks = split_chunks((text or "")[:MAX_CHARS])
     if not chunks:
         return "", 0, 0, {}
@@ -418,7 +414,6 @@ async def build_scientific_notes(
         if on_progress:
             on_progress(done, total_steps)
 
-    # --- مرحله ۱ ---
     stage1: list[tuple[str, bool]] = []
     failed = 0
     prev_heading = ""
@@ -432,7 +427,6 @@ async def build_scientific_notes(
             stage1.append(("⚠️ [این بخش پردازش نشد؛ متن خام:]\n" + chunk, False))
         tick()
 
-    # --- مرحله ۲ ---
     system = ENRICH_SYSTEM.format(field=(field or DEFAULT_FIELD).strip()[:60])
     bodies: list[str] = []
     all_concepts: list[dict] = []
@@ -441,7 +435,7 @@ async def build_scientific_notes(
     for md_text, stage1_ok in stage1:
         if stage1_ok:
             body, concepts, notes, ok = await _enrich_chunk(provider, md_text, system)
-        else:  # بخشی که حتی بازنویسی هم نشد، غنی‌سازی نمی‌شه
+        else:
             body, concepts, notes, ok = md_text, [], [], True
         bodies.append(body)
         all_concepts += concepts
@@ -449,7 +443,6 @@ async def build_scientific_notes(
         enrich_failed += 0 if ok else 1
         tick()
 
-    # --- مرحله ۳ ---
     concepts = _merge_concepts(all_concepts)
     body = "\n\n".join(bodies)
     title = await _make_title(provider, split_sections(body), concepts, topic)

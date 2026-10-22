@@ -1,0 +1,706 @@
+=== app/models.py ===
+import uuid
+from datetime import datetime
+
+from sqlalchemy import String, DateTime, ForeignKey, func, BigInteger, Text, Boolean
+from sqlalchemy.orm import Mapped, mapped_column
+
+from app.database import Base
+
+
+class User(Base):
+    __tablename__ = "users"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    full_name: Mapped[str] = mapped_column(String(255))
+    hashed_password: Mapped[str] = mapped_column(String(255))
+    is_active: Mapped[bool] = mapped_column(default=True)
+    plan: Mapped[str] = mapped_column(String(20), default="free")
+    credits: Mapped[int] = mapped_column(default=0)  # اعتبار انباشتیِ همیشگی — فقط با پاداش دعوت یا شارژ دستی زیاد می‌شه
+    premium_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_flashcard_nudge_date: Mapped[str | None] = mapped_column(String(10), nullable=True)
+
+    # سهمیه‌ی روزانه‌ی رایگان: هر روز تا daily_credits_date عوض نشه (یعنی روز عوض بشه)، از نو ۱۰ تا می‌شه
+    daily_credits_used: Mapped[int] = mapped_column(default=0)
+    daily_credits_date: Mapped[str | None] = mapped_column(String(10), nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class Note(Base):
+    __tablename__ = "notes"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    owner_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), index=True)
+    original_filename: Mapped[str] = mapped_column(String(500))
+    storage_key: Mapped[str] = mapped_column(String(500))
+    file_size_bytes: Mapped[int] = mapped_column(BigInteger)
+    content_type: Mapped[str] = mapped_column(String(150))
+    extracted_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    processing_status: Mapped[str] = mapped_column(String(50), default="pending")
+    embedding: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class ChatSession(Base):
+    __tablename__ = "chat_sessions"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    note_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("notes.id"), index=True)
+    owner_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class ChatMessage(Base):
+    __tablename__ = "chat_messages"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    session_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("chat_sessions.id"), index=True)
+    role: Mapped[str] = mapped_column(String(20))  # "user" or "assistant"
+    content: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class Reminder(Base):
+    __tablename__ = "reminders"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    owner_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), index=True)
+    chat_id: Mapped[str] = mapped_column(String(64))
+    message: Mapped[str] = mapped_column(Text)
+    remind_at: Mapped[datetime] = mapped_column(DateTime(timezone=False), index=True)
+    sent: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class Flashcard(Base):
+    """
+    فلش‌کارتی که با الگوریتم SM-2 (همون الگوریتم پایه‌ی Anki) زمان‌بندی می‌شه.
+    هر بار که کاربر مرورش می‌کنه، interval_days و ease_factor آپدیت می‌شن تا
+    فاصله‌ی مرور بعدی بر اساس عملکرد واقعی کاربر تنظیم بشه.
+    """
+
+    __tablename__ = "flashcards"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    owner_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), index=True)
+    note_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("notes.id"), index=True)
+    question: Mapped[str] = mapped_column(Text)
+    answer: Mapped[str] = mapped_column(Text)
+
+    interval_days: Mapped[float] = mapped_column(default=1.0)
+    ease_factor: Mapped[float] = mapped_column(default=2.5)
+    repetitions: Mapped[int] = mapped_column(default=0)
+
+    next_review_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    last_reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class RedeemCode(Base):
+    __tablename__ = "redeem_codes"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    code: Mapped[str] = mapped_column(String(32), unique=True, index=True)
+    credits: Mapped[int] = mapped_column(default=0)
+    grants_premium: Mapped[bool] = mapped_column(Boolean, default=False)
+    premium_days: Mapped[int | None] = mapped_column(nullable=True)  # None یعنی دائمی
+    max_uses: Mapped[int] = mapped_column(default=1)
+    times_used: Mapped[int] = mapped_column(default=0)
+    is_active: Mapped[bool] = mapped_column(default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class RedeemCodeUse(Base):
+    """کدام کاربر کدام کد رو کِی استفاده کرده — برای جلوگیری از استفاده‌ی دوباره‌ی همون کاربر از یه کد."""
+
+    __tablename__ = "redeem_code_uses"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    code_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("redeem_codes.id"), index=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), index=True)
+    used_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class Referral(Base):
+    """
+    ثبت این‌که کدوم کاربر (referrer) کدوم کاربر جدید (referred) رو دعوت کرده.
+    هر کاربر فقط یه‌بار می‌تونه به‌عنوان «دعوت‌شده» ثبت بشه (برای جلوگیری از
+    ثبت تکراری/سوءاستفاده)، دقیقاً همون لحظه‌ای که برای اولین‌بار عضو بات می‌شه.
+    """
+
+    __tablename__ = "referrals"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    referrer_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), index=True)
+    referred_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), unique=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+=== app/routers/notes.py ===
+import json
+import logging
+import uuid
+
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.database import get_db
+from app.deps import get_current_user
+from app.embeddings import cosine_similarity, get_embedding, get_query_embedding
+from app.models import Note, User
+from app.ocr import extract_text_from_image, is_image
+from app.pptx_extraction import extract_text_from_pptx, is_pptx
+from app.schemas import NoteFromText, SearchQuery, SendTextToChatRequest
+from app.config import settings
+import httpx
+from app.routers.ai import _telegram_chat_id_from_user
+from app.speech_to_text import is_audio, transcribe_audio
+from app.storage import storage_backend
+from app.text_extraction import extract_text_from_pdf
+
+logger = logging.getLogger("unimate.notes")
+router = APIRouter(prefix="/notes", tags=["notes"])
+
+MAX_UPLOAD_BYTES = 30 * 1024 * 1024  # 30MB
+
+
+async def _try_store_embedding(note: Note, db: AsyncSession) -> None:
+    if note.processing_status != "done" or not note.extracted_text:
+        return
+    try:
+        vector = await get_embedding(note.extracted_text)
+        note.embedding = json.dumps(vector)
+        await db.commit()
+    except Exception:
+        logger.exception("Embedding failed for note %s", note.id)
+
+
+@router.post("/upload")
+async def upload_note(
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    key = storage_backend.save_file(file.file, file.filename)
+    file_path = storage_backend.get_file_path(key)
+    size = file_path.stat().st_size
+
+    if size > MAX_UPLOAD_BYTES:
+        storage_backend.delete_file(key)
+        raise HTTPException(
+            status_code=413,
+            detail=f"File too large. Max allowed size is {MAX_UPLOAD_BYTES // (1024 * 1024)}MB.",
+        )
+
+    content_type = file.content_type or "application/octet-stream"
+
+    extracted_text = None
+    processing_status = "not_supported"
+
+    if content_type == "application/pdf" or file.filename.lower().endswith(".pdf"):
+        try:
+            extracted_text = extract_text_from_pdf(file_path)
+            processing_status = "done"
+        except Exception:
+            processing_status = "failed"
+    elif is_pptx(content_type, file.filename):
+        try:
+            extracted_text = extract_text_from_pptx(file_path)
+            processing_status = "done"
+        except Exception:
+            logger.exception("PPTX extraction failed for %s", file.filename)
+            processing_status = "failed"
+    elif is_audio(content_type, file.filename):
+        try:
+            if size > 25 * 1024 * 1024:
+                raise ValueError("Audio file exceeds Groq's 25MB limit")
+            extracted_text = await transcribe_audio(file_path, file.filename)
+            processing_status = "done"
+        except Exception:
+            logger.exception("Audio transcription failed for %s", file.filename)
+            processing_status = "failed"
+    elif is_image(content_type, file.filename):
+        try:
+            extracted_text = extract_text_from_image(file_path)
+            processing_status = "done"
+        except Exception:
+            logger.exception("OCR failed for %s", file.filename)
+            processing_status = "failed"
+
+    note = Note(
+        owner_id=current_user.id,
+        original_filename=file.filename,
+        storage_key=key,
+        file_size_bytes=size,
+        content_type=content_type,
+        extracted_text=extracted_text,
+        processing_status=processing_status,
+    )
+    db.add(note)
+    await db.commit()
+    await db.refresh(note)
+
+    await _try_store_embedding(note, db)
+
+    return {
+        "id": str(note.id),
+        "original_filename": note.original_filename,
+        "size_bytes": note.file_size_bytes,
+        "content_type": note.content_type,
+        "processing_status": note.processing_status,
+    }
+
+
+@router.post("/from-text")
+async def create_note_from_text(
+    payload: NoteFromText,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    text = payload.text.strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="Text is empty")
+
+    note = Note(
+        owner_id=current_user.id,
+        original_filename="متن ارسالی",
+        storage_key="",
+        file_size_bytes=len(text.encode("utf-8")),
+        content_type="text/plain",
+        extracted_text=text,
+        processing_status="done",
+    )
+    db.add(note)
+    await db.commit()
+    await db.refresh(note)
+
+    await _try_store_embedding(note, db)
+
+    return {
+        "id": str(note.id),
+        "original_filename": note.original_filename,
+        "size_bytes": note.file_size_bytes,
+        "content_type": note.content_type,
+        "processing_status": note.processing_status,
+    }
+
+
+@router.post("/search")
+async def search_notes(
+    payload: SearchQuery,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    query = payload.query.strip()
+    if not query:
+        raise HTTPException(status_code=400, detail="Query is empty")
+
+    result = await db.scalars(
+        select(Note).where(
+            Note.owner_id == current_user.id,
+            Note.embedding.is_not(None),
+        )
+    )
+    notes = result.all()
+    if not notes:
+        return {"results": []}
+
+    query_vector = await get_query_embedding(query)
+
+    scored = []
+    for note in notes:
+        try:
+            note_vector = json.loads(note.embedding)
+        except (TypeError, ValueError):
+            continue
+        score = cosine_similarity(query_vector, note_vector)
+        scored.append((score, note))
+
+    scored.sort(key=lambda x: x[0], reverse=True)
+    top = scored[:5]
+
+    return {
+        "results": [
+            {
+                "note_id": str(note.id),
+                "filename": note.original_filename,
+                "score": round(score, 4),
+                "snippet": (note.extracted_text or "")[:300],
+            }
+            for score, note in top
+        ]
+    }
+
+
+@router.get("/{note_id}")
+async def get_note(
+    note_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    note = await db.scalar(select(Note).where(Note.id == note_id))
+    if not note:
+        raise HTTPException(status_code=404, detail="Note not found")
+    if note.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not your note")
+    return {
+        "id": str(note.id),
+        "original_filename": note.original_filename,
+        "size_bytes": note.file_size_bytes,
+        "content_type": note.content_type,
+        "processing_status": note.processing_status,
+        "extracted_text": note.extracted_text,
+        "created_at": note.created_at.isoformat() if note.created_at else None,
+    }
+
+
+@router.get("/")
+async def list_my_notes(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.scalars(
+        select(Note).where(Note.owner_id == current_user.id).order_by(Note.created_at.desc())
+    )
+    notes = result.all()
+    return [
+        {
+            "id": str(n.id),
+            "original_filename": n.original_filename,
+            "size_bytes": n.file_size_bytes,
+            "content_type": n.content_type,
+            "processing_status": n.processing_status,
+            "created_at": n.created_at.isoformat() if n.created_at else None,
+        }
+        for n in notes
+    ]
+
+
+@router.post("/send-text-to-chat")
+async def send_text_to_chat(
+    payload: SendTextToChatRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """
+    متنی که کاربر توی مینی‌اپ گرفته (خلاصه/ترجمه/سؤالات) رو مستقیم به چت
+    تلگرامش می‌فرسته — چون داخل WebView تلگرام نمی‌شه فایل/متن رو قابل‌اعتماد
+    ذخیره یا دانلود کرد، ولی توی خودِ چت همیشه باقی می‌مونه.
+    """
+    if not settings.telegram_bot_token:
+        raise HTTPException(status_code=500, detail="Bot token روی سرور تنظیم نشده")
+    chat_id = _telegram_chat_id_from_user(current_user)
+    if not chat_id:
+        raise HTTPException(status_code=400, detail="این حساب به تلگرام وصل نیست")
+
+    full_text = f"📌 {payload.title}\n\n{payload.text}" if payload.title else payload.text
+    chunks = [full_text[i:i + 3800] for i in range(0, len(full_text), 3800)] or [full_text]
+
+    async with httpx.AsyncClient(timeout=30) as client:
+        for chunk in chunks:
+            resp = await client.post(
+                f"https://api.telegram.org/bot{settings.telegram_bot_token}/sendMessage",
+                json={"chat_id": chat_id, "text": chunk},
+            )
+            if resp.status_code != 200:
+                raise HTTPException(status_code=502, detail="ارسال به چت با خطا مواجه شد.")
+
+    return {"sent": True}
+=== app/schemas.py ===
+import uuid
+
+from pydantic import BaseModel, EmailStr
+
+
+class UserCreate(BaseModel):
+    email: EmailStr
+    full_name: str
+    password: str
+
+
+class UserLogin(BaseModel):
+    email: EmailStr
+    password: str
+
+
+class NoteFromText(BaseModel):
+    text: str
+
+
+class SearchQuery(BaseModel):
+    query: str
+
+
+class TelegramAuthRequest(BaseModel):
+    telegram_user_id: str
+    bot_secret: str
+    referred_by: str | None = None  # telegram_user_id کاربری که این کاربر رو دعوت کرده (اگه از لینک دعوت اومده باشه)
+
+
+class ReminderCreate(BaseModel):
+    chat_id: str
+    message: str
+    remind_at: str  # ISO 8601, e.g. "2026-07-25T18:00:00"
+
+
+class DueReminderCheck(BaseModel):
+    bot_secret: str
+
+
+class StudyPlanRequest(BaseModel):
+    days: int
+
+
+class UserOut(BaseModel):
+    id: uuid.UUID
+    email: EmailStr
+    full_name: str
+    is_active: bool
+
+    class Config:
+        from_attributes = True
+
+
+class Token(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+
+
+class ChatMessageIn(BaseModel):
+    message: str
+
+
+class ChatMessageOut(BaseModel):
+    role: str
+    content: str
+
+
+class GrantCreditsRequest(BaseModel):
+    admin_secret: str
+    email: EmailStr
+    credits_to_add: int = 0
+    set_plan: str | None = None  # "free" or "premium"
+
+
+class AdminUserOut(BaseModel):
+    id: uuid.UUID
+    email: str
+    full_name: str
+    plan: str
+    credits: int
+    is_active: bool
+    notes_count: int
+    telegram_id: str | None = None
+    created_at: str
+    premium_until: str | None = None  # None + plan=premium یعنی دائمی
+
+
+class AdminCreditsUpdate(BaseModel):
+    delta: int  # می‌تونه منفی هم باشه (کسر اعتبار)
+
+
+class AdminPlanUpdate(BaseModel):
+    plan: str  # "free" یا "premium"
+    days: int | None = None  # فقط وقتی plan=="premium" معنی داره؛ None یعنی دائمی
+
+
+class AdminActiveUpdate(BaseModel):
+    is_active: bool
+
+
+class AdminStatsOut(BaseModel):
+    total_users: int
+    premium_users: int
+    free_users: int
+    inactive_users: int
+    total_notes: int
+    total_credits_outstanding: int
+
+
+class RedeemCodeCreate(BaseModel):
+    credits: int = 0
+    grants_premium: bool = False
+    premium_days: int | None = None  # None یعنی دائمی (فقط وقتی grants_premium=True معنی داره)
+    max_uses: int = 1
+    quantity: int = 1  # چند تا کد جدا با همین تنظیمات ساخته بشه
+
+
+class RedeemCodeOut(BaseModel):
+    code: str
+    credits: int
+    grants_premium: bool
+    premium_days: int | None = None
+    max_uses: int
+    times_used: int
+    is_active: bool
+    created_at: str
+
+
+class RedeemRequest(BaseModel):
+    code: str
+
+
+class SlidesRequest(BaseModel):
+    slide_count: int = 8  # شامل اسلاید عنوانه؛ محدوده‌ی مجاز در endpoint چک می‌شه
+
+
+class FlashcardOut(BaseModel):
+    id: uuid.UUID
+    note_id: uuid.UUID
+    question: str
+    answer: str
+    repetitions: int
+    next_review_at: str
+
+
+class FlashcardReviewRequest(BaseModel):
+    rating: str  # "again" | "hard" | "good"
+
+
+class FlashcardReviewResult(BaseModel):
+    id: uuid.UUID
+    interval_days: float
+    next_review_at: str
+    remaining_due: int
+
+
+class RedeemResult(BaseModel):
+    plan: str
+    credits: int
+    premium_until: str | None = None
+    message: str
+
+
+class FlashcardItem(BaseModel):
+    question: str
+    answer: str
+
+
+class FlashcardsSaveRequest(BaseModel):
+    note_id: uuid.UUID
+    cards: list[FlashcardItem]
+
+
+class FlashcardsPdfRequest(BaseModel):
+    cards: list[FlashcardItem]
+
+
+class SendTextToChatRequest(BaseModel):
+    title: str | None = None
+    text: str
+=== app/flashcard_pdf.py ===
+import io
+
+import arabic_reshaper
+from bidi.algorithm import get_display
+from reportlab.lib import colors
+from reportlab.lib.enums import TA_RIGHT
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.styles import ParagraphStyle
+from reportlab.lib.units import mm
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
+from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+
+pdfmetrics.registerFont(TTFont("Vazir", "app/fonts/Vazirmatn-Regular.ttf"))
+pdfmetrics.registerFont(TTFont("Vazir-Bold", "app/fonts/Vazirmatn-Bold.ttf"))
+
+# رنگ‌هایی که بین کارت‌ها می‌چرخن: آبی، سبزآبی، سبز (پس‌زمینه‌ی روشن + متن تیره‌ی هم‌خانواده)
+CARD_COLORS = [
+    (colors.HexColor("#E6F1FB"), colors.HexColor("#042C53")),
+    (colors.HexColor("#E1F5EE"), colors.HexColor("#04342C")),
+    (colors.HexColor("#EAF3DE"), colors.HexColor("#173404")),
+]
+
+CARDS_PER_PAGE = 10
+
+
+def _fa(text: str) -> str:
+    """متن فارسی رو برای نمایش درست (اتصال حروف + راست‌به‌چپ) توی PDF آماده می‌کنه."""
+    if not text:
+        return ""
+    reshaped = arabic_reshaper.reshape(text)
+    return get_display(reshaped)
+
+
+def build_flashcard_pdf_bytes(cards: list[dict], title: str) -> bytes:
+    if not cards:
+        raise ValueError("No flashcards to render")
+
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=A4,
+        topMargin=18 * mm,
+        bottomMargin=16 * mm,
+        leftMargin=16 * mm,
+        rightMargin=16 * mm,
+    )
+
+    title_style = ParagraphStyle(
+        "title", fontName="Vazir-Bold", fontSize=16, alignment=TA_RIGHT, spaceAfter=4,
+    )
+    meta_style = ParagraphStyle(
+        "meta", fontName="Vazir", fontSize=9, alignment=TA_RIGHT,
+        textColor=colors.HexColor("#5F5E5A"), spaceAfter=14,
+    )
+
+    story = [
+        Paragraph(_fa(title), title_style),
+        Paragraph(_fa(f"{len(cards)} فلش‌کارت"), meta_style),
+    ]
+
+    for i, card in enumerate(cards):
+        bg, fg = CARD_COLORS[i % len(CARD_COLORS)]
+
+        q_style = ParagraphStyle(
+            "q", fontName="Vazir-Bold", fontSize=11.5, alignment=TA_RIGHT, textColor=fg, leading=16,
+        )
+        a_style = ParagraphStyle(
+            "a", fontName="Vazir", fontSize=10, alignment=TA_RIGHT, textColor=fg, leading=14, spaceBefore=3,
+        )
+
+        q_text = _fa(f"{card['question']}  .{i + 1}")
+        cell = [Paragraph(q_text, q_style), Paragraph(_fa(card["answer"]), a_style)]
+
+        table = Table([[cell]], colWidths=[doc.width])
+        table.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, -1), bg),
+            ("TOPPADDING", (0, 0), (-1, -1), 8),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+            ("LEFTPADDING", (0, 0), (-1, -1), 10),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 10),
+        ]))
+
+        story.append(table)
+        story.append(Spacer(1, 6))
+
+        if (i + 1) % CARDS_PER_PAGE == 0 and (i + 1) < len(cards):
+            story.append(PageBreak())
+
+    doc.build(story)
+    return buffer.getvalue()
+=== requirements.txt ===
+fastapi==0.140.0
+uvicorn==0.51.0
+sqlalchemy==2.0.51
+asyncpg==0.31.0
+alembic==1.18.5
+pydantic==2.13.4
+pydantic-settings==2.14.2
+pydantic[email]
+python-jose[cryptography]==3.5.0
+passlib[bcrypt]==1.7.4
+bcrypt==5.0.0
+python-telegram-bot[job-queue]==22.8
+python-dotenv==1.2.2
+httpx==0.28.1
+pytesseract==0.3.13
+pillow==12.3.0
+python-pptx==1.0.2
+lxml==6.1.1
+pypdf==5.9.0
+python-multipart==0.0.20
+reportlab==4.2.5
+arabic-reshaper==3.0.0
+python-bidi==0.6.6
