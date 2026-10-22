@@ -496,10 +496,15 @@ async def _fetch_action_text(user_id: int, action: str, note_id: str) -> str:
         return resp.json().get("extracted_text") or "متنی استخراج نشده."
 
     if action == "summary":
-        resp = await api_request(user_id, "POST", f"/ai/notes/{note_id}/summarize")
+        # متن بلند تکه‌تکه خلاصه می‌شه و چند دقیقه طول می‌کشه
+        resp = await api_request(user_id, "POST", f"/ai/notes/{note_id}/summarize", timeout=900)
         data = resp.json()
         if data.get("text_chars"):
-            _summary_meta[note_id] = {"chars": data["text_chars"], "used": data.get("used_chars", data["text_chars"])}
+            _summary_meta[note_id] = {
+                "chars": data["text_chars"],
+                "used": data.get("used_chars", data["text_chars"]),
+                "cost": data.get("cost", 1),
+            }
         return data.get("summary", "") or "خلاصه‌ای ساخته نشد."
 
     if action == "questions":
@@ -1166,15 +1171,20 @@ def _quality_notice(quality: str) -> str:
 
 
 def _truncation_notice(note_id: str) -> str:
-    """اگه خلاصه فقط از بخشی از متن ساخته شده باشه، به کاربر می‌گه."""
+    """هشدارهای بعد از خلاصه: اگه متن از سقف بلندتر بود فقط بخشی خلاصه شده؛ اگه متن بلند بود هزینه‌ی بیشتر."""
     meta = _summary_meta.get(note_id)
-    if not meta or meta["chars"] <= meta["used"]:
+    if not meta:
         return ""
-    percent = max(1, round(meta["used"] / meta["chars"] * 100))
-    return (
-        f"⚠️ این خلاصه فقط از حدود {percent}٪ ابتدای متن ساخته شده (متن حدود {meta['chars'] // 1000} هزار حرفه) "
-        "و بقیه‌ی مطلب توش نیست. برای پوشش کامل، «📖 جزوه‌ی کامل» رو بزن."
-    )
+    lines = []
+    if meta["chars"] > meta["used"]:
+        percent = max(1, round(meta["used"] / meta["chars"] * 100))
+        lines.append(
+            f"⚠️ متن خیلی بلنده (حدود {meta['chars'] // 1000} هزار حرف)؛ فقط {percent}٪ ابتداش خلاصه شد. "
+            "برای پوشش کامل، «📖 جزوه‌ی کامل» رو بزن."
+        )
+    if meta.get("cost", 1) > 1:
+        lines.append(f"💎 چون متن بلند بود و کل متن خلاصه شد، این خلاصه {meta['cost']} اعتبار مصرف کرد.")
+    return "\n".join(lines)
 
 
 async def _course_name(user_id: int, course_id: str) -> str:

@@ -14,16 +14,11 @@ from app.database import get_db
 from app.deps import consume_credit, get_current_user
 from app.flashcard_pdf import build_flashcard_pdf_bytes
 from app.models import Note, User
+from app import summarizer
 from app.pptx_generation import MAX_SLIDES, MIN_SLIDES, build_pptx_bytes
 from app.schemas import FlashcardsPdfRequest, SlidesRequest, StudyPlanRequest
 
 router = APIRouter(prefix="/ai", tags=["ai"])
-
-UNCERTAIN_TEXT_RULE = (
-    "Parts of the input wrapped like [؟ ... ] are low-confidence speech-to-text output and may be wrong. "
-    "Do not state them as established facts; if you must mention one, keep it wrapped as [؟ ... ]. "
-    "Never invent content to fill them in."
-)
 
 SUMMARY_SYSTEM_PROMPT = (
     "You are a helpful academic assistant. Summarize the given study material "
@@ -33,8 +28,7 @@ SUMMARY_SYSTEM_PROMPT = (
     "in the Persian text; always use the standard Persian equivalent of technical "
     "terms (e.g. write شناخت‌ها instead of thoughts, باورها instead of beliefs). "
     "Only keep a term in Latin script if it's a proper noun/acronym with no common "
-    "Persian equivalent (e.g. CBT, DSM). "
-    f"{UNCERTAIN_TEXT_RULE}"
+    "Persian equivalent (e.g. CBT, DSM)."
 )
 
 # متن بلندتری که مخصوص فلش‌کارت به مدل می‌فرستیم — چون هدف اینه که هیچ
@@ -179,15 +173,17 @@ async def summarize_note(
 ):
     note = await _get_owned_note(note_id, current_user, db)
     provider = get_ai_provider()
-    summary = await call_ai_safely(provider, prompt=note.extracted_text[:8000], system=SUMMARY_SYSTEM_PROMPT)
-    await consume_credit(current_user, db)
-    total_chars = len(note.extracted_text)
+    info = summarizer.plan(note.extracted_text)
+    # کل متن (نه فقط ابتداش) با همون پرامپت خلاصه می‌شه؛ برای متن کوتاه فقط یه فراخوانی مثل قبل
+    summary = await summarizer.summarize_long(provider, note.extracted_text, SUMMARY_SYSTEM_PROMPT)
+    await consume_credit(current_user, db, amount=info["cost"])
     return {
         "note_id": str(note.id),
         "summary": summary,
-        # برای اینکه بات بتونه بگه خلاصه از چند درصدِ متن ساخته شده
-        "text_chars": total_chars,
-        "used_chars": min(total_chars, 8000),
+        # بات و وب‌اپ اگه متن از سقف بلندتر بود هشدار می‌دن (used_chars < text_chars)
+        "text_chars": info["chars"],
+        "used_chars": info["used_chars"],
+        "cost": info["cost"],
     }
 
 

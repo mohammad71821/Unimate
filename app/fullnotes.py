@@ -77,8 +77,8 @@ _SPAN_RE = re.compile(r"\[؟[^\]]*\]")
 _SPACE_HOLD = "\ue000"
 
 
-def split_chunks(text: str) -> list[str]:
-    """متن رو سر جمله/پاراگراف به تکه‌های حدود CHUNK_TARGET حرفی می‌شکنه، بدون اینکه حرفی گم بشه.
+def split_chunks(text: str, target: int = CHUNK_TARGET, maximum: int = CHUNK_MAX) -> list[str]:
+    """متن رو سر جمله/پاراگراف به تکه‌های حدود target حرفی (پیش‌فرض CHUNK_TARGET) می‌شکنه، بدون اینکه حرفی گم بشه.
     بخش‌های علامت‌خورده‌ی [؟ ... ] هیچ‌وقت وسطشون بریده نمی‌شن."""
     text = (text or "").replace("\r", "")
     text = _SPAN_RE.sub(lambda m: re.sub(r"\s", _SPACE_HOLD, m.group(0)), text)  # فاصله‌های داخل علامت موقتاً قفل می‌شن
@@ -92,10 +92,10 @@ def split_chunks(text: str) -> list[str]:
             sentence = sentence.strip()
             if not sentence:
                 continue
-            while len(sentence) > CHUNK_MAX:  # جمله‌ی خیلی بلند (مثلاً متنی که نقطه نداره)
-                cut = sentence.rfind(" ", 0, CHUNK_TARGET)
-                if cut < CHUNK_TARGET // 2:
-                    cut = CHUNK_TARGET
+            while len(sentence) > maximum:  # جمله‌ی خیلی بلند (مثلاً متنی که نقطه نداره)
+                cut = sentence.rfind(" ", 0, target)
+                if cut < target // 2:
+                    cut = target
                 units.append(sentence[:cut].strip())
                 sentence = sentence[cut:].strip()
             if sentence:
@@ -104,7 +104,7 @@ def split_chunks(text: str) -> list[str]:
     chunks: list[str] = []
     current = ""
     for unit in units:
-        if current and len(current) + 1 + len(unit) > CHUNK_TARGET:
+        if current and len(current) + 1 + len(unit) > target:
             chunks.append(current)
             current = unit
         else:

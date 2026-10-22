@@ -165,8 +165,8 @@ function act(a,n,s,t){const o=s.querySelector('#out'),sk=()=>outEl(s);
   o.querySelectorAll('[data-k]').forEach(b=>b.onclick=()=>guard(async()=>{const pr=o.querySelector('#pr');pr.innerHTML='<div class="sk" style="margin-top:12px"></div>';const{plan}=await api('/ai/notes/'+n.id+'/study-plan',{method:'POST',json:{days:+b.dataset.k}});load(1);
    pr.innerHTML=plan.length?plan.map(d=>`<div class="card plan"><b>روز ${fa(d.day)} — ${esc(d.focus)}</b><ul>${(d.tasks||[]).map(x=>`<li>${esc(x)}</li>`).join('')}</ul></div>`).join(''):'<div class="empty">برنامه‌ای ساخته نشد</div>'}));return}
  guard(async()=>{const o2=sk();
-  if(a==='sum'){const r=await api('/ai/notes/'+n.id+'/summarize',{method:'POST'});load(1);
-   const w=r.text_chars>r.used_chars?`<div class="warn">⚠️ این خلاصه فقط از ${fa(Math.round(r.used_chars/r.text_chars*100))}٪ ابتدای متن ساخته شده. برای پوشش کامل «جزوه‌ی کامل» رو بزن.</div>`:'';
+  if(a==='sum'){const r=await api('/ai/notes/'+n.id+'/summarize',{method:'POST'});load(1);if(r.cost>1)toast('💎 چون متن بلند بود و کل متن خلاصه شد، '+fa(r.cost)+' اعتبار مصرف شد');
+   const w=r.text_chars>r.used_chars?`<div class="warn">⚠️ متن خیلی بلنده؛ فقط ${fa(Math.round(r.used_chars/r.text_chars*100))}٪ ابتداش خلاصه شد. برای پوشش کامل «جزوه‌ی کامل» رو بزن.</div>`:'';
    o2.innerHTML=w+`<div class="read">${md(r.summary)}</div><button class="btn sm" id="sv">💾 ذخیره در جزوه</button>`;o2.querySelector('#sv').onclick=()=>pick(c=>guard(async()=>{const x=await api('/jozve/items',{method:'POST',json:{course_id:c,content:r.summary,note_id:n.id}});toast('ذخیره شد — شماره '+fa(x.number));load(1)}))}
   if(a==='tr'){const r=await api('/ai/notes/'+n.id+'/translate',{method:'POST'});load(1);o2.innerHTML=`<div class="read">${md(r.translated_text||'ترجمه‌ای ساخته نشد.')}</div>`}
   if(a==='q'){const r=await api('/ai/notes/'+n.id+'/questions',{method:'POST'});load(1);quiz(o2,r.questions||[])}
